@@ -19,16 +19,7 @@
 
 
 (define global-fvar-table '())
-; (define lib-fun `(
-; 						,(run-all '(define /
-; 							(lambda (first.rest)
-; 								(if (null? rest)
-; 									(binary-div 1 first)
-; 									(letrec ((run (lambda (args)
-; 													(if (args)
-; 														1
-; 														(binary-div (car args) (run (cdr args)))))))
-; 										(run (cons first rest)))))))))
+
 
 (define lib-fun '())
 
@@ -149,6 +140,7 @@
 	(my-null?)
 	(my-string?)
 	(my-symbol?)
+	(my-number?)
   (my-string-to-symbol)
   (my-symbol-to-string)
   (my-binary-div)
@@ -156,6 +148,11 @@
   (my-vector-ref)
   (my-gcd)
   (my-binary-add)
+  (my-string-length)
+  (my-vector-length)
+  (my-numerator)
+  (my-denominator)
+  (my-not)
 "/*-------------runtime-support-------------*/\n\n"
   
 "/*-------------fake frame--------------*/\n\n"
@@ -176,12 +173,18 @@
 
   (string-append
     "\n"
+
+    "CMP(R0,SOB_VOID);\n"
+    "JUMP_EQ(L_output_is_void);\n\n"
+
     "PUSH(R0);\n"
     "CALL(WRITE_SOB);\n"
     "DROP(IMM(1));\n\n"
 
+    "L_output_is_void:\n\n"
+
     "CALL(NEWLINE);\n"
-    "END:\n"
+    "END:\n\n"
 
     "STOP_MACHINE;\n\n"
 
@@ -806,31 +809,8 @@
   	(let ((var (get-set-var pe)))
   		(cond ((equal? (get-var-type var) 'pvar) (code-gen-box-get-pvar pe c-table env))
   			  (else (code-gen-box-get-bvar pe c-table env))))))
-  	
 
 
-
-
-; (define code-gen-box-set-pvar
-;   (lambda (pe c-table env)
-;        (let ((boxed-var (cadr pe))
-;              (set-dest (caddr pe)))
-;           (string-append
-;             (code-gen boxed-var c-table env)
-;             "MOV(R1,R0);\n"                 ; R1 will now hold the value of the pointer to be set
-;             (code-gen set-dest c-table env) ; now R0 holds the value of the dest
-;             "MOV(IND(R1),R0);\n"
-;             "MOV(R0,SOB_VOID);\n\n"
-;             ))
-;     ))
-
-; (define code-gen-box-get
-; 	(lambda (pe c-table env)
-; 		(let ((boxed-var (cadr pe)))
-;                           (string-append 
-;                           (code-gen boxed-var c-table env) ; after this R0 holds the pointer of the object.
-;                                 "MOV(R0,IND(R0));\n\n"))
-;                   ))
 
 (define code-gen-fvar
 	(lambda (pe c-table env)
@@ -1385,17 +1365,17 @@
 		""))
 
 ; (define runtime-support-functions
-; 	'( apply < = >   * - char->integer   denominator  
-; 	  eq? integer->char list  make-string make-vector  not 
-; 	  number? numerator remainder set-car! set-cdr! string-length
-; 	  string-ref string-set!  vector vector-length
+; 	'( apply < = >   * - char->integer     
+; 	  eq? integer->char list  make-string make-vector   
+; 	   remainder set-car! set-cdr! 
+; 	  string-ref string-set!  vector 
 ; 	   vector-set! vector? zero?))
 
 ;; things is lib-fun.scm : map, /, append, +
 
-(define runtime-support-functions ;; may need to fix : rational?
+(define runtime-support-functions 
 	'(car cdr integer? char? pair? procedure? boolean? rational? null? string? symbol? string->symbol symbol->string oron/binary-div cons vector-ref
-		oron/binary-add))
+		oron/binary-add string-length vector-length  number? numerator denominator not))
 
 (define unify-fvar-w-runtime-support
 	(lambda (fvar-lst runtime-lst)
@@ -1468,6 +1448,94 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; runtime support ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+(define my-not
+	(lambda ()
+		(let ((address (get-fvar-address '(fvar not) global-fvar-table)))
+		(string-append
+                  "//NOT\n"
+			"JUMP(L_create_my_not_clos);\n" 
+			"L_my_not_body:\n" 
+				"PUSH(FP);\n" 
+				"MOV(FP, SP);\n" 
+
+				"MOV(R0,FPARG(2));\n"
+				"CMP(R0,SOB_FALSE);\n"
+				"JUMP_EQ(L_my_not_ret_true);\n"
+					"MOV(R0,SOB_FALSE);\n"
+					"JUMP(L_my_not_exit);\n"
+
+				"L_my_not_ret_true:\n"
+					"MOV(R0,SOB_TRUE);\n"
+
+				"L_my_not_exit:\n"
+				"POP(FP);\n" 
+				"RETURN;\n\n" 
+
+			"L_create_my_not_clos:\n" 
+				"PUSH(3);\n" 
+				"CALL(MALLOC);\n" 
+				"DROP(1);\n" 
+				"MOV(INDD(R0,0),IMM(T_CLOSURE));\n" 
+				"MOV(INDD(R0,1),IMM(0));\n" 
+				"MOV(INDD(R0,2),LABEL(L_my_not_body));\n" 
+				"MOV(IND(" (number->string address) "),R0);\n\n" ))))
+
+
+
+(define my-denominator
+	(lambda ()
+		(let ((address (get-fvar-address '(fvar denominator) global-fvar-table)))
+		(string-append
+                  "//DENOMINATOR\n"
+			"JUMP(L_create_my_denominator_clos);\n" 
+			"L_my_denominator_body:\n" 
+				"PUSH(FP);\n" 
+				"MOV(FP, SP);\n" 
+				"MOV(R0,FPARG(2));\n" 
+				"MOV(R0,INDD(R0,2));\n" 
+				"PUSH(R0);\n"
+				"CALL(MAKE_SOB_INTEGER);\n"
+				"DROP(IMM(1));\n"
+				"POP(FP);\n" 
+				"RETURN;\n\n" 
+
+			"L_create_my_denominator_clos:\n" 
+				"PUSH(3);\n" 
+				"CALL(MALLOC);\n" 
+				"DROP(1);\n" 
+				"MOV(INDD(R0,0),IMM(T_CLOSURE));\n" 
+				"MOV(INDD(R0,1),IMM(0));\n" 
+				"MOV(INDD(R0,2),LABEL(L_my_denominator_body));\n" 
+				"MOV(IND(" (number->string address) "),R0);\n\n" ))))
+
+
+(define my-numerator
+	(lambda ()
+		(let ((address (get-fvar-address '(fvar numerator) global-fvar-table)))
+		(string-append
+                  "//NUMERATOR\n"
+			"JUMP(L_create_my_numerator_clos);\n" 
+			"L_my_numerator_body:\n" 
+				"PUSH(FP);\n" 
+				"MOV(FP, SP);\n" 
+				"MOV(R0,FPARG(2));\n" 
+				"MOV(R0,INDD(R0,1));\n" 
+				"PUSH(R0);\n"
+				"CALL(MAKE_SOB_INTEGER);\n"
+				"DROP(IMM(1));\n"
+				"POP(FP);\n" 
+				"RETURN;\n\n" 
+
+			"L_create_my_numerator_clos:\n" 
+				"PUSH(3);\n" 
+				"CALL(MALLOC);\n" 
+				"DROP(1);\n" 
+				"MOV(INDD(R0,0),IMM(T_CLOSURE));\n" 
+				"MOV(INDD(R0,1),IMM(0));\n" 
+				"MOV(INDD(R0,2),LABEL(L_my_numerator_body));\n" 
+				"MOV(IND(" (number->string address) "),R0);\n\n" ))))
 
 
 (define my-car
@@ -1699,6 +1767,8 @@
 				
 				"CMP(R0,T_FRACTION);\n"
 					"JUMP_EQ(L_is_rational_true);\n"
+				"CMP(R0,T_INTEGER);\n"
+					"JUMP_EQ(L_is_rational_true);\n"
 				"MOV(R0,SOB_FALSE);\n"
 				"JUMP(L_exit_my_rational);\n\n"
 				
@@ -1717,6 +1787,44 @@
 				"MOV(INDD(R0,1),IMM(0));\n" 
 				"MOV(INDD(R0,2),LABEL(L_my_rational_body));\n" 
 				"MOV(IND(" (number->string address) "),R0);\n\n" ))))
+
+
+(define my-number?
+	(lambda ()
+		(let ((address (get-fvar-address '(fvar number?) global-fvar-table)))
+		(string-append
+                 "//NUMBER?\n"
+			"JUMP(L_create_my_number_clos);\n" 
+			"L_my_number_body:\n" 
+				"PUSH(FP);\n" 
+				"MOV(FP, SP);\n" 
+				"MOV(R0,FPARG(2));\n" 
+				"MOV(R0,INDD(R0,0));\n\n" 
+				
+				"CMP(R0,T_FRACTION);\n"
+					"JUMP_EQ(L_is_number_true);\n"
+				"CMP(R0,T_INTEGER);\n"
+					"JUMP_EQ(L_is_number_true);\n"
+				"MOV(R0,SOB_FALSE);\n"
+				"JUMP(L_exit_my_number);\n\n"
+				
+				"L_is_number_true:\n"
+					"MOV(R0,SOB_TRUE);\n\n"
+
+				"L_exit_my_number:\n"
+				"POP(FP);\n" 
+				"RETURN;\n\n" 
+
+			"L_create_my_number_clos:\n" 
+				"PUSH(3);\n" 
+				"CALL(MALLOC);\n" 
+				"DROP(1);\n" 
+				"MOV(INDD(R0,0),IMM(T_CLOSURE));\n" 
+				"MOV(INDD(R0,1),IMM(0));\n" 
+				"MOV(INDD(R0,2),LABEL(L_my_number_body));\n" 
+				"MOV(IND(" (number->string address) "),R0);\n\n" ))))
+
+
 
 
 (define my-null?
@@ -2005,6 +2113,63 @@
 				"MOV(INDD(R0,1),IMM(0));\n" 
 				"MOV(INDD(R0,2),LABEL(L_my_vector_ref_body));\n" 
 				"MOV(IND(" (number->string address) "),R0);\n\n" ))))
+
+
+
+(define my-string-length
+  (lambda()
+		(let ((address (get-fvar-address '(fvar string-length) global-fvar-table)))
+		(string-append
+			"//STRING_LENGTH\n"
+			"JUMP(L_create_my_string_length_clos);\n" 
+			"L_my_string_length_body:\n" 
+				"PUSH(FP);\n" 
+				"MOV(FP, SP);\n\n" 
+				"MOV(R0,FPARG(2));\n"
+				"MOV(R0,INDD(R0,1));\n"
+				"PUSH(R0);\n"
+				"CALL(MAKE_SOB_INTEGER);\n"
+				"DROP(IMM(1));\n"
+                "POP(FP);\n" 
+				"RETURN;\n\n" 
+
+			"L_create_my_string_length_clos:\n" 
+				"PUSH(3);\n" 
+				"CALL(MALLOC);\n" 
+				"DROP(1);\n" 
+				"MOV(INDD(R0,0),IMM(T_CLOSURE));\n" 
+				"MOV(INDD(R0,1),IMM(0));\n" 
+				"MOV(INDD(R0,2),LABEL(L_my_string_length_body));\n" 
+				"MOV(IND(" (number->string address) "),R0);\n\n" ))))
+
+
+(define my-vector-length
+  (lambda()
+		(let ((address (get-fvar-address '(fvar vector-length) global-fvar-table)))
+		(string-append
+			"//VECTOR-LENGTH\n"
+			"JUMP(L_create_my_vector_length_clos);\n" 
+			"L_my_vector_length_body:\n" 
+				"PUSH(FP);\n" 
+				"MOV(FP, SP);\n\n" 
+				"MOV(R0,FPARG(2));\n"
+				"MOV(R0,INDD(R0,1));\n"
+				"PUSH(R0);\n"
+				"CALL(MAKE_SOB_INTEGER);\n"
+				"DROP(IMM(1));\n"
+                "POP(FP);\n" 
+				"RETURN;\n\n" 
+
+			"L_create_my_vector_length_clos:\n" 
+				"PUSH(3);\n" 
+				"CALL(MALLOC);\n" 
+				"DROP(1);\n" 
+				"MOV(INDD(R0,0),IMM(T_CLOSURE));\n" 
+				"MOV(INDD(R0,1),IMM(0));\n" 
+				"MOV(INDD(R0,2),LABEL(L_my_vector_length_body));\n" 
+				"MOV(IND(" (number->string address) "),R0);\n\n" ))))
+
+
 
 
 

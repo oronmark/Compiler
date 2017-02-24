@@ -38,48 +38,13 @@ DROP(IMM(1));
 PUSH(IMM(1));
 CALL(MAKE_SOB_BOOL);
 DROP(IMM(1));
-
-PUSH(IMM(34));
-CALL(MAKE_SOB_INTEGER);
-DROP(IMM(1));
-
-PUSH(IMM(29));
-PUSH(IMM(-5));
-CALL(MAKE_SOB_FRACTION);
-DROP(IMM(2));
-
-
-PUSH(IMM(114));
-CALL(MAKE_SOB_INTEGER);
-DROP(IMM(1));
-
-PUSH(IMM(11));
-PUSH(IMM(-3));
-CALL(MAKE_SOB_FRACTION);
-DROP(IMM(2));
-
-PUSH(IMM(15));
-PUSH(IMM(2));
-CALL(MAKE_SOB_FRACTION);
-DROP(IMM(2));
-
-
-PUSH(IMM(1));
-CALL(MAKE_SOB_INTEGER);
-DROP(IMM(1));
-
-
-PUSH(IMM(0));
-CALL(MAKE_SOB_INTEGER);
-DROP(IMM(1));
-
 /*-------------const table-------------*/
 
 /*-------------fvar table-------------*/
 
-MOV(IND(0),26);
+MOV(IND(0),7);
 
-//fvar: +
+//fvar: foo
 PUSH(IMM(1));
 CALL(MALLOC);
 MOV(IND(R0),T_UNDEF);
@@ -187,6 +152,48 @@ CALL(MALLOC);
 MOV(IND(R0),T_UNDEF);
 DROP(1);
 
+//fvar: string-length
+PUSH(IMM(1));
+CALL(MALLOC);
+MOV(IND(R0),T_UNDEF);
+DROP(1);
+
+//fvar: vector-length
+PUSH(IMM(1));
+CALL(MALLOC);
+MOV(IND(R0),T_UNDEF);
+DROP(1);
+
+//fvar: number?
+PUSH(IMM(1));
+CALL(MALLOC);
+MOV(IND(R0),T_UNDEF);
+DROP(1);
+
+//fvar: numerator
+PUSH(IMM(1));
+CALL(MALLOC);
+MOV(IND(R0),T_UNDEF);
+DROP(1);
+
+//fvar: denominator
+PUSH(IMM(1));
+CALL(MALLOC);
+MOV(IND(R0),T_UNDEF);
+DROP(1);
+
+//fvar: not
+PUSH(IMM(1));
+CALL(MALLOC);
+MOV(IND(R0),T_UNDEF);
+DROP(1);
+
+
+
+
+
+
+
 
 
 
@@ -209,7 +216,7 @@ DROP(1);
 
 /*-------------symbol table-------------*/
 
-MOV(R1,44);
+MOV(R1,31);
 PUSH(IMM(1));
 CALL(MALLOC);
 MOV(IND(R0),SOB_NIL);
@@ -236,7 +243,7 @@ DROP(1);
 MOV(INDD(R0,0),IMM(T_CLOSURE));
 MOV(INDD(R0,1),IMM(0));
 MOV(INDD(R0,2),LABEL(L_my_car_body));
-MOV(IND(27),R0);
+MOV(IND(8),R0);
 
 //CDR
 JUMP(L_create_my_cdr_clos);
@@ -255,7 +262,7 @@ DROP(1);
 MOV(INDD(R0,0),IMM(T_CLOSURE));
 MOV(INDD(R0,1),IMM(0));
 MOV(INDD(R0,2),LABEL(L_my_cdr_body));
-MOV(IND(28),R0);
+MOV(IND(9),R0);
 
 //INTEGER?
 JUMP(L_create_my_integer_clos);
@@ -284,7 +291,7 @@ DROP(1);
 MOV(INDD(R0,0),IMM(T_CLOSURE));
 MOV(INDD(R0,1),IMM(0));
 MOV(INDD(R0,2),LABEL(L_my_integer_body));
-MOV(IND(29),R0);
+MOV(IND(10),R0);
 
 //CHAR?
 JUMP(L_create_my_char_clos);
@@ -313,7 +320,7 @@ DROP(1);
 MOV(INDD(R0,0),IMM(T_CLOSURE));
 MOV(INDD(R0,1),IMM(0));
 MOV(INDD(R0,2),LABEL(L_my_char_body));
-MOV(IND(30),R0);
+MOV(IND(11),R0);
 
 //PAIR?
 JUMP(L_create_my_pair_clos);
@@ -342,7 +349,7 @@ DROP(1);
 MOV(INDD(R0,0),IMM(T_CLOSURE));
 MOV(INDD(R0,1),IMM(0));
 MOV(INDD(R0,2),LABEL(L_my_pair_body));
-MOV(IND(31),R0);
+MOV(IND(12),R0);
 
 //PROCEDURE?
 JUMP(L_create_my_procedure_clos);
@@ -371,7 +378,7 @@ DROP(1);
 MOV(INDD(R0,0),IMM(T_CLOSURE));
 MOV(INDD(R0,1),IMM(0));
 MOV(INDD(R0,2),LABEL(L_my_procedure_body));
-MOV(IND(32),R0);
+MOV(IND(13),R0);
 
 //BOOLEAN??
 JUMP(L_create_my_boolean_clos);
@@ -400,7 +407,7 @@ DROP(1);
 MOV(INDD(R0,0),IMM(T_CLOSURE));
 MOV(INDD(R0,1),IMM(0));
 MOV(INDD(R0,2),LABEL(L_my_boolean_body));
-MOV(IND(33),R0);
+MOV(IND(14),R0);
 
 //RATIONAL?
 JUMP(L_create_my_rational_clos);
@@ -411,6 +418,8 @@ MOV(R0,FPARG(2));
 MOV(R0,INDD(R0,0));
 
 CMP(R0,T_FRACTION);
+JUMP_EQ(L_is_rational_true);
+CMP(R0,T_INTEGER);
 JUMP_EQ(L_is_rational_true);
 MOV(R0,SOB_FALSE);
 JUMP(L_exit_my_rational);
@@ -429,7 +438,7 @@ DROP(1);
 MOV(INDD(R0,0),IMM(T_CLOSURE));
 MOV(INDD(R0,1),IMM(0));
 MOV(INDD(R0,2),LABEL(L_my_rational_body));
-MOV(IND(34),R0);
+MOV(IND(15),R0);
 
 //NULL?
 JUMP(L_create_my_null_clos);
@@ -458,7 +467,7 @@ DROP(1);
 MOV(INDD(R0,0),IMM(T_CLOSURE));
 MOV(INDD(R0,1),IMM(0));
 MOV(INDD(R0,2),LABEL(L_my_null_body));
-MOV(IND(35),R0);
+MOV(IND(16),R0);
 
 //STRING?
 JUMP(L_create_my_string_clos);
@@ -487,7 +496,7 @@ DROP(1);
 MOV(INDD(R0,0),IMM(T_CLOSURE));
 MOV(INDD(R0,1),IMM(0));
 MOV(INDD(R0,2),LABEL(L_my_string_body));
-MOV(IND(36),R0);
+MOV(IND(17),R0);
 
 //SYMBOL?
 JUMP(L_create_my_symbol_clos);
@@ -516,7 +525,38 @@ DROP(1);
 MOV(INDD(R0,0),IMM(T_CLOSURE));
 MOV(INDD(R0,1),IMM(0));
 MOV(INDD(R0,2),LABEL(L_my_symbol_body));
-MOV(IND(37),R0);
+MOV(IND(18),R0);
+
+//NUMBER?
+JUMP(L_create_my_number_clos);
+L_my_number_body:
+PUSH(FP);
+MOV(FP, SP);
+MOV(R0,FPARG(2));
+MOV(R0,INDD(R0,0));
+
+CMP(R0,T_FRACTION);
+JUMP_EQ(L_is_number_true);
+CMP(R0,T_INTEGER);
+JUMP_EQ(L_is_number_true);
+MOV(R0,SOB_FALSE);
+JUMP(L_exit_my_number);
+
+L_is_number_true:
+MOV(R0,SOB_TRUE);
+
+L_exit_my_number:
+POP(FP);
+RETURN;
+
+L_create_my_number_clos:
+PUSH(3);
+CALL(MALLOC);
+DROP(1);
+MOV(INDD(R0,0),IMM(T_CLOSURE));
+MOV(INDD(R0,1),IMM(0));
+MOV(INDD(R0,2),LABEL(L_my_number_body));
+MOV(IND(27),R0);
 
 //STRING->SYMBOL
 JUMP(L_create_my_string_to_symbol_clos);
@@ -525,7 +565,7 @@ PUSH(FP);
 MOV(FP, SP);
 MOV(R3,FPARG(2));
 
-MOV(R1,44);
+MOV(R1,31);
 CMP(IND(R1),SOB_NIL);
 JUMP_EQ(L_my_string_to_symbol_table_nil);
 
@@ -577,7 +617,7 @@ DROP(IMM(1));
 MOV(INDD(R0,0),IMM(T_CLOSURE));
 MOV(INDD(R0,1),IMM(0));
 MOV(INDD(R0,2),LABEL(L_my_string_to_symbol_body));
-MOV(IND(38),R0);
+MOV(IND(19),R0);
 
 //SYMBOL->STRING
 JUMP(L_create_my_symbol_to_string_clos);
@@ -597,7 +637,7 @@ DROP(1);
 MOV(INDD(R0,0),IMM(T_CLOSURE));
 MOV(INDD(R0,1),IMM(0));
 MOV(INDD(R0,2),LABEL(L_my_symbol_to_string_body));
-MOV(IND(39),R0);
+MOV(IND(20),R0);
 
 //BINARY-DIV
 JUMP(L_create_my_div_clos);
@@ -701,7 +741,7 @@ DROP(1);
 MOV(INDD(R0,0),IMM(T_CLOSURE));
 MOV(INDD(R0,1),IMM(0));
 MOV(INDD(R0,2),LABEL(L_my_div_body));
-MOV(IND(40),R0);
+MOV(IND(21),R0);
 
 //CONS
 JUMP(L_create_my_cons_clos);
@@ -725,7 +765,7 @@ DROP(1);
 MOV(INDD(R0,0),IMM(T_CLOSURE));
 MOV(INDD(R0,1),IMM(0));
 MOV(INDD(R0,2),LABEL(L_my_cons_body));
-MOV(IND(41),R0);
+MOV(IND(22),R0);
 
 //VECTOR-REF
 JUMP(L_create_my_vector_ref_clos);
@@ -747,7 +787,7 @@ DROP(1);
 MOV(INDD(R0,0),IMM(T_CLOSURE));
 MOV(INDD(R0,1),IMM(0));
 MOV(INDD(R0,2),LABEL(L_my_vector_ref_body));
-MOV(IND(42),R0);
+MOV(IND(23),R0);
 
 //GCD
 JUMP(L_jump_over_gcd);
@@ -859,7 +899,122 @@ DROP(1);
 MOV(INDD(R0,0),IMM(T_CLOSURE));
 MOV(INDD(R0,1),IMM(0));
 MOV(INDD(R0,2),LABEL(L_my_binary_add_body));
-MOV(IND(43),R0);
+MOV(IND(24),R0);
+
+//STRING_LENGTH
+JUMP(L_create_my_string_length_clos);
+L_my_string_length_body:
+PUSH(FP);
+MOV(FP, SP);
+
+MOV(R0,FPARG(2));
+MOV(R0,INDD(R0,1));
+PUSH(R0);
+CALL(MAKE_SOB_INTEGER);
+DROP(IMM(1));
+POP(FP);
+RETURN;
+
+L_create_my_string_length_clos:
+PUSH(3);
+CALL(MALLOC);
+DROP(1);
+MOV(INDD(R0,0),IMM(T_CLOSURE));
+MOV(INDD(R0,1),IMM(0));
+MOV(INDD(R0,2),LABEL(L_my_string_length_body));
+MOV(IND(25),R0);
+
+//VECTOR-LENGTH
+JUMP(L_create_my_vector_length_clos);
+L_my_vector_length_body:
+PUSH(FP);
+MOV(FP, SP);
+
+MOV(R0,FPARG(2));
+MOV(R0,INDD(R0,1));
+PUSH(R0);
+CALL(MAKE_SOB_INTEGER);
+DROP(IMM(1));
+POP(FP);
+RETURN;
+
+L_create_my_vector_length_clos:
+PUSH(3);
+CALL(MALLOC);
+DROP(1);
+MOV(INDD(R0,0),IMM(T_CLOSURE));
+MOV(INDD(R0,1),IMM(0));
+MOV(INDD(R0,2),LABEL(L_my_vector_length_body));
+MOV(IND(26),R0);
+
+//NUMERATOR
+JUMP(L_create_my_numerator_clos);
+L_my_numerator_body:
+PUSH(FP);
+MOV(FP, SP);
+MOV(R0,FPARG(2));
+MOV(R0,INDD(R0,1));
+PUSH(R0);
+CALL(MAKE_SOB_INTEGER);
+DROP(IMM(1));
+POP(FP);
+RETURN;
+
+L_create_my_numerator_clos:
+PUSH(3);
+CALL(MALLOC);
+DROP(1);
+MOV(INDD(R0,0),IMM(T_CLOSURE));
+MOV(INDD(R0,1),IMM(0));
+MOV(INDD(R0,2),LABEL(L_my_numerator_body));
+MOV(IND(28),R0);
+
+//DENOMINATOR
+JUMP(L_create_my_denominator_clos);
+L_my_denominator_body:
+PUSH(FP);
+MOV(FP, SP);
+MOV(R0,FPARG(2));
+MOV(R0,INDD(R0,2));
+PUSH(R0);
+CALL(MAKE_SOB_INTEGER);
+DROP(IMM(1));
+POP(FP);
+RETURN;
+
+L_create_my_denominator_clos:
+PUSH(3);
+CALL(MALLOC);
+DROP(1);
+MOV(INDD(R0,0),IMM(T_CLOSURE));
+MOV(INDD(R0,1),IMM(0));
+MOV(INDD(R0,2),LABEL(L_my_denominator_body));
+MOV(IND(29),R0);
+
+//NOT
+JUMP(L_create_my_not_clos);
+L_my_not_body:
+PUSH(FP);
+MOV(FP, SP);
+MOV(R0,FPARG(2));
+CMP(R0,SOB_FALSE);
+JUMP_EQ(L_my_not_ret_true);
+MOV(R0,SOB_FALSE);
+JUMP(L_my_not_exit);
+L_my_not_ret_true:
+MOV(R0,SOB_TRUE);
+L_my_not_exit:
+POP(FP);
+RETURN;
+
+L_create_my_not_clos:
+PUSH(3);
+CALL(MALLOC);
+DROP(1);
+MOV(INDD(R0,0),IMM(T_CLOSURE));
+MOV(INDD(R0,1),IMM(0));
+MOV(INDD(R0,2),LABEL(L_my_not_body));
+MOV(IND(30),R0);
 
 /*-------------runtime-support-------------*/
 
@@ -880,418 +1035,77 @@ MOV(FP,SP);
 
 
 /////////////////////////////////////
-///code gen: lambda-opt    - start///
+///code gen: lambda-simple - start///
 /////////////////////////////////////
 MOV(R1,FPARG(0));
 
 PUSH(IMM(0));
 CALL(MALLOC);
-DROP(IMM(1));
+DROP(1);
 MOV(R2, R0);
 
 MOV(R4,IMM(0));
 MOV(R5,IMM(1));
 
-L_copy_old_env_start_7:
+L_copy_old_env_start_5:
 CMP(R4,IMM(-1));
-JUMP_GE(L_copy_old_env_end_6);
+JUMP_GE(L_copy_old_env_end_4);
 MOV(INDD(R2,R5),INDD(R1,R4));
 ADD(R4,IMM(1));
 ADD(R5,IMM(1));
-JUMP(L_copy_old_env_start_7);
-L_copy_old_env_end_6:
+JUMP(L_copy_old_env_start_5);
+L_copy_old_env_end_4:
 
 
 PUSH(FPARG(1));
 CALL(MALLOC);
-DROP(IMM(1));
+DROP(1);
 MOV(R3,R0);
 MOV(R4,IMM(0));
 
-L_copy_args_start_5:
+L_copy_args_start_3:
 CMP(R4,FPARG(1));
-JUMP_EQ(L_copy_args_end_4 );
+JUMP_EQ(L_copy_args_end_2 );
 MOV(INDD(R3,R4),FPARG(2 + R4));
 ADD(R4,IMM(1));
-JUMP(L_copy_args_start_5);
-L_copy_args_end_4:
+JUMP(L_copy_args_start_3);
+L_copy_args_end_2:
 
 MOV(IND(R2), R3);
 
 PUSH(IMM(3));
 CALL(MALLOC);
-DROP(IMM(1));
+DROP(1);
 
 MOV(INDD(R0,0), T_CLOSURE);
 MOV(INDD(R0,1), R2);
-MOV(INDD(R0,2),LABEL(L_lambda_var_body_8));
+MOV(INDD(R0,2),LABEL(L_lambda_simple_body_6));
 
-JUMP(L_exit_lambda_var_3);
+JUMP(L_exit_lambda_simple_1);
 
-//--------------------check here------------------------
-
-L_lambda_var_body_8:
+L_lambda_simple_body_6:
 PUSH(FP);
 MOV(FP,SP);
+MOV(R0,FPARG(2));
+POP(FP);
+RETURN;
 
-MOV(R1,SOB_NIL);
-MOV(R2,FPARG(1)+1);
+L_exit_lambda_simple_1:
 
-L_make_var_arg_start_2:
-CMP(R2,0 +1);
-JUMP_EQ(L_make_var_arg_end_1);
-PUSH(R1);
-PUSH(FPARG(R2));
-CALL(MAKE_SOB_PAIR);
-DROP(IMM(2));
-SUB(R2,1);
-MOV(R1,R0);
-JUMP(L_make_var_arg_start_2);
-L_make_var_arg_end_1:
-
-MOV(FPARG(0 + 2), R1);
+MOV(IND(7),R0);
+MOV(R0,SOB_VOID);
 
 
-////////////////////////////////
-///code gen: tc-applic- start///
-////////////////////////////////
 
+/////////////////////////////
+///code gen: applic- start///
+/////////////////////////////
 MOV(R0,IMM(3));
 
 PUSH(R0)
 
-PUSH(IMM(1))
-
-
-/////////////////////////////////////
-///code gen: lambda-simple - start///
-/////////////////////////////////////
-MOV(R1,FPARG(0));
-
 PUSH(IMM(1));
-CALL(MALLOC);
-DROP(1);
-MOV(R2, R0);
-
-MOV(R4,IMM(0));
-MOV(R5,IMM(1));
-
-L_copy_old_env_start_15:
-CMP(R4,IMM(0));
-JUMP_GE(L_copy_old_env_end_14);
-MOV(INDD(R2,R5),INDD(R1,R4));
-ADD(R4,IMM(1));
-ADD(R5,IMM(1));
-JUMP(L_copy_old_env_start_15);
-L_copy_old_env_end_14:
-
-
-PUSH(FPARG(1));
-CALL(MALLOC);
-DROP(1);
-MOV(R3,R0);
-MOV(R4,IMM(0));
-
-L_copy_args_start_13:
-CMP(R4,FPARG(1));
-JUMP_EQ(L_copy_args_end_12 );
-MOV(INDD(R3,R4),FPARG(2 + R4));
-ADD(R4,IMM(1));
-JUMP(L_copy_args_start_13);
-L_copy_args_end_12:
-
-MOV(IND(R2), R3);
-
-PUSH(IMM(3));
-CALL(MALLOC);
-DROP(1);
-
-MOV(INDD(R0,0), T_CLOSURE);
-MOV(INDD(R0,1), R2);
-MOV(INDD(R0,2),LABEL(L_lambda_simple_body_16));
-
-JUMP(L_exit_lambda_simple_11);
-
-L_lambda_simple_body_16:
-PUSH(FP);
-MOV(FP,SP);
-
-
-/////////////////////////////
-///code gen: seq   - start///
-/////////////////////////////
-//set-pvar
-//box
-PUSH(IMM(1));
-CALL(MALLOC);
-DROP(IMM(1));
-MOV(IND(R0), FPARG(2));
-MOV(FPARG(2 +0),R0);
-MOV(R0,SOB_VOID);
-
-
-
-/////////////////////////////////////
-///code gen: lambda-simple - start///
-/////////////////////////////////////
-MOV(R1,FPARG(0));
-
-PUSH(IMM(2));
-CALL(MALLOC);
-DROP(1);
-MOV(R2, R0);
-
-MOV(R4,IMM(0));
-MOV(R5,IMM(1));
-
-L_copy_old_env_start_23:
-CMP(R4,IMM(1));
-JUMP_GE(L_copy_old_env_end_22);
-MOV(INDD(R2,R5),INDD(R1,R4));
-ADD(R4,IMM(1));
-ADD(R5,IMM(1));
-JUMP(L_copy_old_env_start_23);
-L_copy_old_env_end_22:
-
-
-PUSH(FPARG(1));
-CALL(MALLOC);
-DROP(1);
-MOV(R3,R0);
-MOV(R4,IMM(0));
-
-L_copy_args_start_21:
-CMP(R4,FPARG(1));
-JUMP_EQ(L_copy_args_end_20 );
-MOV(INDD(R3,R4),FPARG(2 + R4));
-ADD(R4,IMM(1));
-JUMP(L_copy_args_start_21);
-L_copy_args_end_20:
-
-MOV(IND(R2), R3);
-
-PUSH(IMM(3));
-CALL(MALLOC);
-DROP(1);
-
-MOV(INDD(R0,0), T_CLOSURE);
-MOV(INDD(R0,1), R2);
-MOV(INDD(R0,2),LABEL(L_lambda_simple_body_24));
-
-JUMP(L_exit_lambda_simple_19);
-
-L_lambda_simple_body_24:
-PUSH(FP);
-MOV(FP,SP);
-
-
-/////////////////////////////
-///code gen: if    - start///
-/////////////////////////////
-
-
-
-/////////////////////////////
-///code gen: applic- start///
-/////////////////////////////
-MOV(R0,FPARG(2));
-
-PUSH(R0)
-
-PUSH(IMM(1));
-MOV(R0,IND(35));
-PUSH(INDD(R0,1));
-CALLA(INDD(R0,2));
-DROP(IMM(1));
-POP(R1);
-DROP(R1);
-CMP(R0,IMM(SOB_FALSE));
-JUMP_EQ(L_if3_dif_26);
-MOV(R0,IMM(22));
-JUMP(L_if3_exit_25);
-L_if3_dif_26:
-
-
-/////////////////////////////
-///code gen: applic- start///
-/////////////////////////////
-
-
-/////////////////////////////
-///code gen: applic- start///
-/////////////////////////////
-
-
-/////////////////////////////
-///code gen: applic- start///
-/////////////////////////////
-MOV(R0,FPARG(2));
-
-PUSH(R0)
-
-PUSH(IMM(1));
-MOV(R0,IND(28));
-PUSH(INDD(R0,1));
-CALLA(INDD(R0,2));
-DROP(IMM(1));
-POP(R1);
-DROP(R1);
-
-PUSH(R0)
-
-PUSH(IMM(1));
-//box-get-bvar
-MOV(R0,FPARG(0));
-MOV(R0,INDD(R0,0));
-MOV(R0, INDD(R0,0));
-MOV(R0,IND(R0));
-
-PUSH(INDD(R0,1));
-CALLA(INDD(R0,2));
-DROP(IMM(1));
-POP(R1);
-DROP(R1);
-
-PUSH(R0)
-
-
-/////////////////////////////
-///code gen: applic- start///
-/////////////////////////////
-MOV(R0,FPARG(2));
-
-PUSH(R0)
-
-PUSH(IMM(1));
-MOV(R0,IND(27));
-PUSH(INDD(R0,1));
-CALLA(INDD(R0,2));
-DROP(IMM(1));
-POP(R1);
-DROP(R1);
-
-PUSH(R0)
-
-PUSH(IMM(2));
-MOV(R0,IND(43));
-PUSH(INDD(R0,1));
-CALLA(INDD(R0,2));
-DROP(IMM(1));
-POP(R1);
-DROP(R1);
-L_if3_exit_25:
-POP(FP);
-RETURN;
-
-L_exit_lambda_simple_19:
-
-//box-set-pvar
-MOV(R1,FPARG(2 +0));
-MOV(IND(R1),R0);
-MOV(R0,SOB_VOID);
-
-
-
-////////////////////////////////
-///code gen: tc-applic- start///
-////////////////////////////////
-
-MOV(R0,FPARG(0));
-MOV(R0,INDD(R0,0));
-MOV(R0,INDD(R0,0));
-
-PUSH(R0)
-
-PUSH(IMM(1))
-//box-get-pvar
-MOV(R0, FPARG(2+0));
-MOV(R0,IND(R0));
-
-PUSH(INDD(R0,1));
-PUSH(FPARG(-1));
-MOV(R10,FPARG(-2));
-
-MOV(R1,1 + 3);
-MOV(R2, FPARG(1) + 1);
-MOV(R3,-3);
-
-MOV(R4,FPARG(1) + 4);
-L_tc_applic_overide_stack_start_17:
-CMP(R1,IMM(0));
-JUMP_EQ(L_tc_applic_overide_stack_end_18);
-MOV(FPARG(R2),FPARG(R3));
-SUB(R2,IMM(1));
-SUB(R3,IMM(1));
-SUB(R1,IMM(1));
-JUMP(L_tc_applic_overide_stack_start_17);
-L_tc_applic_overide_stack_end_18:
-
-DROP(R4);
-MOV(FP,R10);
-JUMPA(INDD(R0,2));
-POP(FP);
-RETURN;
-
-L_exit_lambda_simple_11:
-
-PUSH(INDD(R0,1));
-PUSH(FPARG(-1));
-MOV(R10,FPARG(-2));
-
-MOV(R1,1 + 3);
-MOV(R2, FPARG(1) + 1);
-MOV(R3,-3);
-
-MOV(R4,FPARG(1) + 4);
-L_tc_applic_overide_stack_start_9:
-CMP(R1,IMM(0));
-JUMP_EQ(L_tc_applic_overide_stack_end_10);
-MOV(FPARG(R2),FPARG(R3));
-SUB(R2,IMM(1));
-SUB(R3,IMM(1));
-SUB(R1,IMM(1));
-JUMP(L_tc_applic_overide_stack_start_9);
-L_tc_applic_overide_stack_end_10:
-
-DROP(R4);
-MOV(FP,R10);
-JUMPA(INDD(R0,2));
-POP(FP);
-RETURN;
-
-//--------------------check here------------------------
-
-L_exit_lambda_var_3:
-
-MOV(IND(26),R0);
-MOV(R0,SOB_VOID);
-
-
-
-/////////////////////////////
-///code gen: applic- start///
-/////////////////////////////
-MOV(R0,IMM(7));
-
-PUSH(R0)
-MOV(R0,IMM(9));
-
-PUSH(R0)
-MOV(R0,IMM(12));
-
-PUSH(R0)
-MOV(R0,IMM(14));
-
-PUSH(R0)
-MOV(R0,IMM(17));
-
-PUSH(R0)
-MOV(R0,IMM(20));
-
-PUSH(R0)
-
-PUSH(IMM(6));
-MOV(R0,IND(26));
+MOV(R0,IND(30));
 PUSH(INDD(R0,1));
 CALLA(INDD(R0,2));
 DROP(IMM(1));

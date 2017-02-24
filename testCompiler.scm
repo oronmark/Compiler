@@ -890,17 +890,17 @@
 
 (runAllTests
   (list      
-     ; (cons "Constants Table" constants-table-tests)  
-     ;  (cons "Or, If and Begin" or-if-begin-tests)      
-     ;   (cons "Lambda-simple" lambda-simple-tests)
-     ;   (cons "Lambda-opt" lambda-opt-tests)
-     ;   (cons "Lambda-var" lambda-var-tests)
-      ;(cons "tc-applic-tests" tc-applic-tests)
-      ; (cons "Comp161 torture if test" comp161-torture-if-test)
-      ; (cons "comp161 torture test for compiler unsorted" comp161-torture-test-for-compiler-unsorted)
+      (cons "Constants Table" constants-table-tests)  
+       (cons "Or, If and Begin" or-if-begin-tests)      
+        (cons "Lambda-simple" lambda-simple-tests)
+        (cons "Lambda-opt" lambda-opt-tests)
+        (cons "Lambda-var" lambda-var-tests)
+      (cons "tc-applic-tests" tc-applic-tests)
+       (cons "Comp161 torture if test" comp161-torture-if-test)
+       (cons "comp161 torture test for compiler unsorted" comp161-torture-test-for-compiler-unsorted)
        (cons "Set" set-tests)
-      ; (cons "pvar-bvar" pvar-bvar-tests)
-      ; (cons "Define" define-tests)
-      ; (cons "Debugging" tests)  
+       (cons "pvar-bvar" pvar-bvar-tests)
+       (cons "Define" define-tests)
+       (cons "Debugging" tests)  
       
 ))

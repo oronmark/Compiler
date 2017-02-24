@@ -180,10 +180,10 @@
     "PUSH(R0);\n"
     "CALL(WRITE_SOB);\n"
     "DROP(IMM(1));\n\n"
-
+    "CALL(NEWLINE);\n"
     "L_output_is_void:\n\n"
 
-    "CALL(NEWLINE);\n"
+
     "END:\n\n"
 
     "STOP_MACHINE;\n\n"

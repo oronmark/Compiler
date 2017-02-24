@@ -1,0 +1,1854 @@
+(* compiler.ml
+ * A compiler from Scheme to CISC
+ *
+ * Programmer: Yos Apel, Yuval Maymon
+ *)
+
+#use "pc.ml";;
+
+exception X_not_yet_implemented;;
+exception X_this_should_not_happen;;
+
+let rec ormap f s =
+  match s with
+  | [] -> false
+  | car :: cdr -> (f car) || (ormap f cdr);;
+
+let rec andmap f s =
+  match s with
+  | [] -> true
+  | car :: cdr -> (f car) && (andmap f cdr);;	  
+
+let string_to_list str =
+  let rec loop i limit =
+    if i = limit then []
+    else (String.get str i) :: (loop (i + 1) limit)
+  in
+  loop 0 (String.length str);;
+
+let list_to_string s =
+  let rec loop s n =
+    match s with
+    | [] -> String.make n '?'
+    | car :: cdr ->
+       let result = loop cdr (n + 1) in
+       String.set result n car;
+       result
+  in
+  loop s 0;;
+
+type fraction = {numerator : int; denominator : int};;
+
+type number =
+  | Int of int
+  | Fraction of fraction;;
+
+type sexpr =
+  | Void
+  | Bool of bool
+  | Nil
+  | Number of number
+  | Char of char
+  | String of string
+  | Symbol of string
+  | Pair of sexpr * sexpr
+  | Vector of sexpr list;;
+
+module type SEXPR = sig
+  val sexpr_to_string : sexpr -> string
+end;; (* signature SEXPR *)
+
+module Sexpr : SEXPR = struct
+  
+exception X_invalid_fraction of fraction;;
+
+let normalize_scheme_symbol str =
+  let s = string_to_list str in
+  if (andmap
+	(fun ch -> (ch = (Char.lowercase ch)))
+	s) then str
+  else Printf.sprintf "|%s|" str;;
+
+let scm_char_to_string = function
+  | '\n' -> "#\\newline"
+  | '\013' -> "#\\return"
+  | '\t' -> "#\\tab"
+  | '\012' -> "#\\page"
+  | '\032' -> "#\\space"
+  | chr -> "#\\" ^ (String.make 1 chr);;
+
+let rec sexpr_to_string = function
+  | Void -> "" 
+  | Bool (true) -> "#t"
+  | Bool (false) -> "#f"
+  | Nil -> "()"
+  | Number (Int (n)) -> string_of_int n
+  | Number (Fraction ({numerator = x; denominator = y})) -> 
+    (string_of_int x) ^ "/" ^ (string_of_int y)
+  | Char (chr) -> (scm_char_to_string chr) 
+  | String (str) -> "\"" ^ str ^ "\""
+  | Symbol (str) -> normalize_scheme_symbol str
+  | Pair (Symbol("quote"), Pair(sexprs, Nil)) -> "'" ^ (sexpr_to_string sexprs)
+  | Pair (Symbol("quasiquote"), Pair(sexprs, Nil)) -> "`" ^ (sexpr_to_string sexprs)
+  | Pair (Symbol("unquote-splicing"), Pair(sexprs, Nil)) -> ",@" ^ (sexpr_to_string sexprs)
+  | Pair (Symbol("unquote"), Pair(sexprs, Nil)) -> "," ^ (sexpr_to_string sexprs)
+  | Pair (_,_) as pair ->  "(" ^ (print_pairs pair) ^ ")"
+  | Vector (sexprs) -> "#(" ^ (String.concat " " (List.map sexpr_to_string sexprs)) ^ ")"
+
+and print_pairs = function
+  | Pair (x , Nil) -> (sexpr_to_string x)
+  | Pair (x , Pair (y , z)) -> (sexpr_to_string x) ^ " " ^ (print_pairs (Pair (y,z)))
+  | Pair (x , y) -> (sexpr_to_string x) ^ " . " ^ (sexpr_to_string y)
+  | _ -> raise X_this_should_not_happen
+;;
+
+end;; (* struct Sexpr *)
+
+module type PARSER = sig
+  val read_sexpr : string -> sexpr
+  val read_sexprs : string -> sexpr list
+end;;
+
+module Parser : PARSER = struct
+
+open PC;;
+
+let make_char_value base_char displacement =
+  let base_char_value = Char.code base_char in
+  fun ch -> (Char.code ch) - base_char_value + displacement;;
+
+let make_hex_char_value = function
+  | '0' .. '9' as c -> (make_char_value '0' 0) c
+  | 'a' .. 'f' as c -> (make_char_value 'a' 10) c
+  | 'A' .. 'F' as c -> (make_char_value 'A' 10) c
+  | _ -> raise X_this_should_not_happen;;
+
+let nt_scm_bool = 
+  let t = pack (char_ci 't') (fun _ -> Bool(true)) in
+  let f = pack (char_ci 'f') (fun _ -> Bool(false)) in
+  let comb = caten (char '#') (disj t f) in
+  let comb' = pack comb (fun (_,x) -> x) in
+  comb';; 
+
+let nt_nat =
+  let nt = range '1' '9' in
+  let nt = pack nt (make_char_value '0' 0) in
+  let nt' = range '0' '9' in
+  let nt' = pack nt' (make_char_value '0' 0) in
+  let nt' = star nt' in
+  let nt = caten nt nt' in
+  let nt = pack nt (fun (d, ds) -> (d :: ds)) in
+  let nt = pack nt (fun s -> List.fold_left (fun a b -> a * 10 + b) 0 s) in
+  let nt' = char '0' in
+  let nt'' = char '0' in
+  let nt''' = range '0' '9' in
+  let nt'' = caten nt'' nt''' in
+  let nt' = diff nt' nt'' in
+  let nt' = pack nt' (fun e -> 0) in
+  let nt = disj nt nt' in
+  nt;;
+
+let nt_int =
+  let nt = char '-' in
+  let nt = pack nt (fun e -> -1) in
+  let nt' = char '+' in
+  let nt' = pack nt' (fun e -> 1) in
+  let nt = disj nt nt' in
+  let nt = maybe nt in
+  let nt = pack nt (function | None -> 1 | Some(mult) -> mult) in
+  let nt' = range '0' '9' in
+  let nt' = pack nt' (make_char_value '0' 0) in
+  let nt' = plus nt' in
+  let nt' = pack nt' (fun s -> List.fold_left (fun a b -> a * 10 + b) 0 s) in
+  let nt = caten nt nt' in
+  let nt = pack nt (fun (mult, n) -> (mult * n)) in
+  nt;;
+
+let nt_hex =
+  let nt' = disj (range '0' '9') (range_ci 'a' 'f') in
+  let nt' = pack nt' make_hex_char_value  in
+  let pref = word_ci "0x" in
+  let nt' = caten pref (plus nt') in
+  let nt' = pack nt' (fun (_,s) -> List.fold_left (fun a b -> a * 16 + b) 0 s) in
+  nt';;
+
+let nt_hex_signed = 
+  let nt = char '-' in
+  let nt = pack nt (fun e -> -1) in
+  let nt' = char '+' in
+  let nt' = pack nt' (fun e -> 1) in
+  let nt = disj nt nt' in
+  let nt = maybe nt in
+  let nt = pack nt (function | None -> 1 | Some(mult) -> mult) in
+  let nt' = nt_hex in
+  let nt = caten nt nt' in
+  let nt = pack nt (fun (sign, n) -> (sign * n)) in
+  nt;; 
+
+let rec gcd a b =
+  match (a mod b) with
+    0 -> b
+  | r -> gcd b r;;
+
+let nt_scm_fractions = 
+  let num = disj nt_hex_signed nt_int in 
+  let denom = disj nt_hex nt_nat in
+  let fr = caten num (caten (char '/') denom) in
+  let fr' = pack fr (fun (x,(_,y)) -> 
+    if (y = 0) then raise PC.X_no_match else
+      let common = (gcd (abs x) (abs y)) in
+      let num = x/common in
+      let den = y/common in
+      match den with 
+      | 1 -> Int(num)
+      | n -> Fraction{numerator = num; denominator = den}) in
+  fr';;
+
+let nt_scm_number = 
+  let op = disj nt_hex_signed nt_int in
+  let it = pack op (fun x -> Number(Int(x))) in
+  let fr = pack nt_scm_fractions (fun x -> Number(x)) in
+  let comb = disj fr it in
+  comb;; 
+
+let clist_to_string lst = List.fold_left 
+  (fun x y -> x ^ (String.make 1 y)) "" lst;;
+
+let nt_scm_symbol = 
+  let ltr = range_ci 'a' 'z' in
+  let num = range '0' '9' in
+  let pnc = one_of "!$^*-_=+<>/?" in
+  let comb = disj_list [ltr;num;pnc] in
+  let comb' = (plus comb) in
+  let tostr = pack comb' (fun x -> Symbol (String.lowercase (clist_to_string x))) in
+  (* warning, magic code below! *)
+  let nt' = caten nt_scm_number tostr in 
+  let nt' = diff nt_scm_number nt' in
+  disj nt' tostr;;
+
+let nt_any_but_dq = const (fun ch -> ((ch <> '"') && (ch <> '\\')) );;
+
+let nt_escaped_chars = disj_list [pack (word "\\\"") (fun _ -> '"');
+				  pack (word "\\n") (fun _ -> '\n');
+				  pack (word "\\r") (fun _ -> '\r');
+				  pack (word "\\t") (fun _ -> '\t');
+				  pack (word "\\\\") (fun _ -> '\\');
+				  pack (word "\\f") (fun _ -> '\012');];;
+
+let nt_scm_string = 
+  let nta = disj nt_any_but_dq nt_escaped_chars in
+  let ntla = star nta in
+  let dq = char '"' in
+  let nt1 = caten dq (caten ntla dq) in
+  let cln = pack nt1 (fun (_,(x,_)) -> String (clist_to_string x)) in
+  cln;;
+
+let nt_named_chars = disj_list [pack (word_ci "newline") (fun _ -> '\n');
+				pack (word_ci "return") (fun _ -> '\013');
+				pack (word_ci "tab") (fun _ -> '\t');
+				pack (word_ci "page") (fun _ -> '\012');
+				pack (word_ci "space") (fun _ -> '\032')];; 
+
+let nt_scm_char = 
+  let pre = word "#\\" in
+  let any = const (fun ch -> ch > ' ') in
+  let comb = caten pre (disj nt_named_chars any) in
+  let cln = pack comb (fun (_,x) -> Char x) in
+  cln;;
+
+let nt_ln_comment = 
+  let any = const (fun ch ->  ( ch <> '\n' ))  in
+  let eol = (char '\n')  in
+  let cmnt = caten (char ';') (caten (star any) eol) in
+  let cmnt' = pack cmnt (fun _ -> '\n') in
+  cmnt' ;;
+
+let nt_quote_forms = disj_list [pack (char '\'') (fun _ -> Symbol("quote"));
+				pack (char '`') (fun _ -> Symbol("quasiquote"));
+				pack (word ",@") (fun _ -> Symbol("unquote-splicing"));
+				pack (char ',') (fun _ -> Symbol("unquote"));];;
+
+let rec wrap_quote = function
+  | ([], sexpr) -> sexpr
+  | (sym::els, sexpr) -> Pair(sym, Pair(wrap_quote (els,sexpr), Nil))
+
+let rec make_pairs lst init = 
+  match lst with
+  | [] -> init
+  | head::tail -> Pair (head, make_pairs tail init);;
+
+let nt_sexpr = 
+  let rec foo () = 
+    let ntr = (delayed foo) in
+    let sexpr_comment = (pack (caten (word "#;") ntr) (fun _ -> ' ')) in
+    let nt_skip = (disj_list [nt_whitespace; nt_ln_comment; sexpr_comment]) in
+    let nt_space_star = (star nt_skip) in
+    let nt_space_plus = (plus nt_skip) in
+    let nt_space_star_b4 nt = pack (caten nt_space_star nt) (fun (_,y) -> y) in
+    let nt_space_plus_b4 nt = pack (caten nt_space_plus nt) (fun (_,y) -> y) in
+    let ntrs = nt_space_star_b4 ntr in
+    let brl = nt_space_star_b4 (char '(') in
+    let brr = nt_space_star_b4 (char ')') in
+    let nt_scm_nil =  pack (caten brl brr) (fun _ -> Nil) in
+    let vector = caten (nt_space_star_b4 (word "#(")) (caten (star ntrs) brr) in
+    let vector' = pack vector (fun (_,(x,_)) -> Vector x) in
+    let proper = caten brl (caten (plus ntrs) brr) in
+    let proper' = pack proper (fun (_,(x,_)) -> make_pairs x Nil) in
+    let dot = nt_space_plus_b4 (char '.') in
+    let improper = caten brl (caten (plus ntrs) (caten dot (caten ntrs brr))) in
+    let improper' = pack improper (fun (_,(x,(_,(y,_)))) -> make_pairs x y) in
+    let nts = disj_list [ nt_scm_symbol;
+			  nt_scm_bool; 
+			  nt_scm_number; 
+			  nt_scm_char; 		         
+			  nt_scm_string;
+			  nt_scm_nil] in
+    let ntss = nt_space_star_b4 nts  in
+    let comb = disj_list [ proper' ; improper' ; ntss ; vector'] in
+    let comb_q = caten (star (nt_space_star_b4 nt_quote_forms)) comb in
+    let comb_q' = pack comb_q wrap_quote in
+    comb_q' in
+  foo ();;
+
+let rec nt_clean_sexpr  = pack (caten nt_sexpr (maybe nt_sexpr)) (fun (x,y) -> match y with
+  | Some(_) -> raise PC.X_no_match
+  | None -> x );;
+
+let rec clean_char_list lst = match lst with
+  | [] -> []
+  | head::tail -> if (head = '\r') then (clean_char_list tail) else 
+      head::(clean_char_list tail);;
+
+let rec read_sexpr string = 
+  let (e,s) =  (nt_clean_sexpr (clean_char_list (string_to_list string))) in
+  e;;
+
+let read_sexprs string =
+  let (e,s) =  ((plus nt_sexpr) (clean_char_list (string_to_list string))) in
+  e;;
+
+end;; (* struct Parser *)
+
+(* work on the tag parser starts here *)
+
+type expr =
+  | Const of sexpr
+  | Var of string
+  | If of expr * expr * expr
+  | Seq of expr list
+  | Set of expr * expr
+  | Def of expr * expr
+  | Or of expr list
+  | LambdaSimple of string list * expr
+  | LambdaOpt of string list * string * expr
+  | Applic of expr * (expr list);;
+
+exception X_syntax_error;;
+
+module type TAG_PARSER = sig
+  val read_expression : string -> expr
+  val read_expressions : string -> expr list
+  val expression_to_string : expr -> string
+end;; (* signature TAG_PARSER *)
+
+module Tag_Parser  : TAG_PARSER  = struct
+
+let reserved_word_list =
+  ["and"; "begin"; "cond"; "define"; "do"; "else";
+   "if"; "lambda"; "let"; "let*"; "letrec"; "or";
+   "quasiquote"; "quote"; "set!"; "unquote";
+   "unquote-splicing"];;  
+
+let rec process_scheme_list s ret_nil ret_one ret_several =
+  match s with
+  | Nil -> ret_nil ()
+  | (Pair(sexpr, sexprs)) ->
+     process_scheme_list sexprs
+			 (fun () -> ret_one sexpr)
+			 (fun sexpr' -> ret_several [sexpr; sexpr'])
+			 (fun sexprs -> ret_several (sexpr :: sexprs))
+  | _ -> raise X_syntax_error;;
+  
+let scheme_list_to_ocaml_list args = 
+  process_scheme_list args
+		      (fun () -> [])
+		      (fun sexpr -> [sexpr])
+		      (fun sexprs -> sexprs);;
+    
+let expand_let_star ribs sexprs =
+  let ribs = scheme_list_to_ocaml_list ribs in
+  let params = List.map (function
+			  | (Pair(name, (Pair(expr, Nil)))) -> name
+			  | _ -> raise X_this_should_not_happen) ribs in
+  let args = List.map
+	       (function
+		 | (Pair(name, (Pair(expr, Nil)))) -> expr
+		 | _ -> raise X_this_should_not_happen) ribs in
+  let params_set = List.fold_right
+		     (fun a s ->
+		      if (ormap
+			    (fun b ->
+			     (match (a, b) with
+			      | (Symbol a, Symbol b) -> a = b
+			      | _ -> raise X_this_should_not_happen))
+			    s)
+		      then s else a :: s)
+		     params
+		     [] in
+  let place_holders = List.fold_right
+			(fun a s -> Pair(a, s))
+			(List.map
+			   (fun var -> (Pair(var, (Pair((Bool false), Nil)))))
+			   params_set)
+			Nil in
+  let assignments = List.map2
+		      (fun var expr ->
+		       (Pair((Symbol("set!")),
+			     (Pair(var, (Pair(expr, Nil)))))))
+		      params args in
+  let body = List.fold_right
+	       (fun a s -> Pair(a, s))
+	       assignments
+	       sexprs in
+  (Pair((Symbol("let")), (Pair(place_holders, body))));;
+
+let expand_letrec ribs sexprs =
+  let ribs = scheme_list_to_ocaml_list ribs in
+  let params = List.map (function
+			  | (Pair(name, (Pair(expr, Nil)))) -> name
+			  | _ -> raise X_this_should_not_happen) ribs in
+  let args = List.map
+	       (function
+		 | (Pair(name, (Pair(expr, Nil)))) -> expr
+		 | _ -> raise X_this_should_not_happen) ribs in
+  let ribs = List.map
+	       (function
+		 | (Pair(name, (Pair(expr, Nil)))) ->
+		    (Pair(name, (Pair(Bool false, Nil))))
+		 | _ -> raise X_this_should_not_happen)
+	       ribs in
+  let body = List.fold_right
+	       (fun a s -> Pair(a, s))
+	       (List.map2
+		  (fun var expr ->
+		   (Pair((Symbol("set!")),
+			 (Pair(var, (Pair(expr, Nil)))))))
+		  params args)
+	       sexprs in
+  let ribs = List.fold_right
+	       (fun a s -> Pair(a, s))
+	       ribs
+	       Nil in
+  (Pair((Symbol("let")), (Pair(ribs, body))));;
+
+exception X_unquote_splicing_here_makes_no_sense;;
+
+let rec expand_qq sexpr = match sexpr with
+  | (Pair((Symbol("unquote")), (Pair(sexpr, Nil)))) -> sexpr
+  | (Pair((Symbol("unquote-splicing")), (Pair(sexpr, Nil)))) ->
+     raise X_unquote_splicing_here_makes_no_sense
+  | (Pair(a, b)) ->
+     (match (a, b) with
+      | ((Pair((Symbol("unquote-splicing")), (Pair(a, Nil)))), b) ->
+	 let b = expand_qq b in
+	 (Pair((Symbol("append")),
+	       (Pair(a, (Pair(b, Nil))))))
+      | (a, (Pair((Symbol("unquote-splicing")), (Pair(b, Nil))))) ->
+	 let a = expand_qq a in
+	 (Pair((Symbol("cons")), (Pair(a, (Pair(b, Nil))))))
+      | (a, b) ->
+	 let a = expand_qq a in
+	 let b = expand_qq b in
+	 (Pair((Symbol("cons")), (Pair(a, (Pair(b, Nil)))))))
+  | (Vector(sexprs)) ->
+     let s = expand_qq (List.fold_right (fun a b -> Pair(a, b)) sexprs Nil) in
+     (Pair((Symbol("list->vector")), (Pair(s, Nil))))
+  | Nil | Symbol _ -> (Pair((Symbol("quote")), (Pair(sexpr, Nil))))
+  | expr -> expr;;
+
+
+let rec make_Pairs lst =
+  match lst with 
+  | [] -> Nil
+  | head :: tail -> Pair(head, make_Pairs tail);;
+
+let expand_let ribs sexprs = 
+  let ribs = scheme_list_to_ocaml_list ribs in
+  let params = List.map (function
+			  | (Pair(name, (Pair(expr, Nil)))) -> name
+			  | _ -> raise X_this_should_not_happen) ribs in
+
+  let params = make_Pairs params in
+
+  let args = List.map
+	       (function
+		 | (Pair(name, (Pair(expr, Nil)))) -> expr
+		 | _ -> raise X_this_should_not_happen) ribs in
+
+  let args = make_Pairs args in
+  (Pair((Pair((Symbol("lambda")), (Pair(params, sexprs)))), args));; 
+
+
+
+let get_ribs sexpr = 
+  match sexpr with 
+  | (Pair((Symbol("let")), (Pair(ribs, sexprs)))) -> 
+    ribs
+  | _ -> raise X_syntax_error;;
+
+let get_sexprl sexpr = 
+  match sexpr with 
+  | (Pair((Symbol (str)), (Pair(ribs, sexprs)))) -> 
+    sexprs 
+  | _ -> raise X_syntax_error;;
+
+let get_params ribsList =
+  List.map (function
+      | (Pair(name, (Pair(expr, Nil)))) -> name
+      | _ -> raise X_this_should_not_happen) ribsList ;;
+
+let get_args ribsList =
+List.map (function
+      | (Pair(name, (Pair(expr, Nil)))) -> expr
+      | _ -> raise X_this_should_not_happen) ribsList;;
+
+let expand_MIT_def_style name argl expr =
+  (*Number (Int 2);; *)
+  (Pair((Symbol("define")), (Pair(name, (Pair((Pair((Symbol("lambda")), (Pair(argl,expr)))), Nil))))));;
+  (*(Pair((Symbol("define")), (Pair(name, (Pair((Symbol("lambda")), (Pair(argl, expr))))))));; *)
+
+let expand_cond conditions = 
+  let conditions = scheme_list_to_ocaml_list conditions in
+
+  let rec expand_cond_rec conditions =  
+    let match_test test expr cdr = 
+        match test with 
+        | Symbol ("else") -> expr
+        | _ -> (Pair((Symbol("if")), (Pair(test, (Pair(expr, (Pair (expand_cond_rec cdr, Nil)))))))) in 
+
+    match conditions with
+    | [] -> Void
+
+    | (Pair(test, (Pair(expr, Nil)))) :: cdr ->
+      match_test test expr cdr
+    | _ -> raise X_syntax_error in
+  
+  expand_cond_rec conditions;;
+ 
+
+let check_variable_with_reserved_word_list var =
+  match var with 
+  | Symbol str ->
+    if (andmap (fun (car) -> str <> car) reserved_word_list) then
+      (Var str)
+    else 
+      raise X_syntax_error
+  | _ -> raise X_syntax_error;;
+
+let check_variable_with_reserved_word_list2 var =
+  match var with 
+  | Symbol str ->
+    if (andmap (fun (car) -> str <> car) reserved_word_list) then
+      true
+    else 
+      raise X_syntax_error
+ | _ -> raise X_syntax_error;;
+                                                               
+let rec make_list_of_arguments argl =
+  match argl with
+  | Nil -> []
+  | Pair (first, others) -> first :: (make_list_of_arguments others)
+  | _ ->  raise X_syntax_error;;
+ 
+
+let get_string_list argl = 
+  let argl = scheme_list_to_ocaml_list argl in
+  let stringList = List.map (function
+			  | (Symbol (str)) -> str
+			  | _ -> raise X_this_should_not_happen) argl in 
+  stringList;;
+
+let rec get_string_list_of_variadic argl =
+  match argl with
+  | (Symbol str) -> [str]
+  | (Pair ((Symbol (str)), cdr)) -> str :: (get_string_list_of_variadic cdr)
+  | _ -> raise X_this_should_not_happen;;
+
+let get_list_without_last argl = 
+  let argl = get_string_list_of_variadic argl in
+  List.rev(List.tl(List.rev argl));;
+
+let get_last argl =
+  let argl = get_string_list_of_variadic argl in
+  List.nth argl ((List.length argl) -1) ;;
+
+let construct_lambda_helper argl arglHead something expr= 
+  let rec test_last argl =
+    match argl with
+    | Nil -> false
+    | Pair(Symbol _, Symbol _) -> true
+    | Pair(Symbol s, Nil) -> false
+    | Pair(Symbol s, Pair (a, b)) -> test_last (Pair (a, b)) 
+    | _ -> raise X_syntax_error in
+  
+  if (test_last argl) = true then  LambdaOpt(get_list_without_last argl, get_last argl, expr)
+  else LambdaSimple (get_string_list argl, expr)
+
+let get_argl sexpr =
+  match sexpr with
+  | (Pair((Symbol("lambda")), (Pair(argl, sexprl)))) -> 
+    argl
+  | _ -> raise X_syntax_error;;
+
+
+let rec expand_and conditions =
+  match conditions with
+  | Nil -> Bool true
+  | Pair (first, Nil) -> first
+  | Pair (first, others) -> (Pair((Symbol("if")), (Pair(first, (Pair((expand_and others), (Pair((Bool (false)), Nil))))))))
+  | _ -> raise X_syntax_error;;
+
+let rec run sexpr =
+
+    let handle_regular_define name expr =
+      match expr with 
+      | Pair (first, Nil) -> Def (check_variable_with_reserved_word_list name, run first) 
+      | _ -> raise X_syntax_error in
+
+    let handle_define_versions name expr = 
+      match name with
+      | (Pair(name, argl)) -> (run (expand_MIT_def_style name argl expr))
+      | (Symbol str) -> handle_regular_define name expr
+      | _ -> raise X_syntax_error in
+
+    let rec flatten_sexpr_list_and_remove_begins_rec lst = 
+      match lst with
+      | [head] ->
+        (match head with 
+         | Pair (Symbol "define", _) -> [head]
+         | Pair (Symbol "begin", begins_body) -> (flatten_sexpr_list_and_remove_begins_rec (scheme_list_to_ocaml_list begins_body))
+         | _ -> [head])
+
+      | head :: tail ->
+        (match head with
+         | Pair (Symbol "define", _) -> [head] @ (flatten_sexpr_list_and_remove_begins_rec tail)
+         | Pair (Symbol "begin", begins_body) -> 
+           if begins_body = Nil then (flatten_sexpr_list_and_remove_begins_rec tail)
+           else 
+           (flatten_sexpr_list_and_remove_begins_rec (scheme_list_to_ocaml_list begins_body)) @ (flatten_sexpr_list_and_remove_begins_rec tail)
+         | _ -> [head] @ (flatten_sexpr_list_and_remove_begins_rec tail)) 
+
+      | [] -> [Nil] in
+
+
+
+    let flatten_sexpr_list_and_remove_begins lst = 
+      let lst = (scheme_list_to_ocaml_list lst) in
+      if lst=[] then [Nil]
+      else
+      flatten_sexpr_list_and_remove_begins_rec lst in
+
+    let rec check_legal_define_in_lambda sexpr_list encounter = 
+      match sexpr_list with 
+      | [] -> true
+      | car::cdr ->
+        match car with 
+        | Pair (Symbol "define", _) -> 
+          if encounter=true then (raise X_syntax_error)
+          else check_legal_define_in_lambda cdr false
+        | _ -> check_legal_define_in_lambda cdr true in
+
+    let handle_final_MIT name expr =
+      match name with 
+      | (Symbol str) -> 
+        if (check_variable_with_reserved_word_list2 name) then Pair(name, expr)
+        else raise X_syntax_error
+      | _ -> raise X_syntax_error in
+
+    let get_final_body_of_MIT sexpr =
+      match sexpr with 
+      | (Pair((Symbol("define")), (Pair(name, expr)))) -> handle_final_MIT name expr
+      | _ -> raise X_syntax_error in
+
+    let get_final_body name expr =
+      match name with
+      | (Pair(name, argl)) -> (get_final_body_of_MIT(expand_MIT_def_style name argl expr))
+      | (Symbol str) -> 
+        if (check_variable_with_reserved_word_list2 name) then Pair(name, expr)
+        else raise X_syntax_error
+      | _ -> raise X_syntax_error in 
+      
+    let rec get_defines_list_rec sexpr_list = 
+      match sexpr_list with 
+      | [] -> []
+      | car::cdr ->
+        match car with
+        | (Pair((Symbol("define")), (Pair(name, expr)))) -> [(get_final_body name expr)] @ (get_defines_list_rec cdr)
+        | _ -> [] in 
+
+    let get_defines_list sexpr_list =
+      if ((check_legal_define_in_lambda sexpr_list false) = true) then 
+        get_defines_list_rec sexpr_list
+      else raise X_this_should_not_happen in
+
+    let rec get_body sexpr_list = 
+      match sexpr_list with 
+      | [] -> []
+      | car::cdr ->
+        match car with
+        | Pair(Symbol "define", body) -> get_body cdr
+        | _ -> [car] @ (get_body cdr) in
+
+    let expand_defines_to_letrec sexprs = 
+      let sexprs' = flatten_sexpr_list_and_remove_begins sexprs in
+      let ribs = get_defines_list sexprs' in 
+      let ribs' = make_Pairs ribs in
+      let body = get_body sexprs' in
+      let body = make_Pairs body in
+      if ribs=[] then sexprs
+      else (Pair (Pair (Symbol "letrec", Pair (ribs', body)), Nil)) in
+
+    let make_one_beautiful_expr_out_of_sexprl sexprl = 
+      let sexprl = scheme_list_to_ocaml_list sexprl in
+      let exprList = List.map 
+          (function sexpr ->  run sexpr )
+                       sexprl in
+
+      let n = List.length exprList in
+      if n > 1 then 
+        Seq (exprList) 
+      else
+        List.hd exprList in
+
+    let construct_the_proper_lambda argl sexprl = 
+      let sexprl = expand_defines_to_letrec sexprl in
+      let expr =  make_one_beautiful_expr_out_of_sexprl sexprl  in 
+      match argl with
+      | (Symbol p) -> 
+        LambdaOpt ([], p, expr)
+      | Nil -> 
+        LambdaSimple ([], expr)
+      | (Pair (arglHead, something)) ->
+        construct_lambda_helper argl arglHead something expr 
+      | _ ->  raise X_syntax_error  in
+
+    let handle_begin body =
+      match body with
+      | Nil -> run Void
+      | _ -> make_one_beautiful_expr_out_of_sexprl body in
+
+    let match_or conditions =
+      match conditions with 
+      | Nil -> run (Bool false)
+      | Pair (first, Nil) -> run first
+      | Pair (first, others) -> Or (List.map run (make_list_of_arguments conditions))
+      | _ -> raise X_syntax_error in
+
+    match sexpr with 
+    | (Bool _ | Char _ | String _ | Number _ | Void | Nil) -> Const sexpr
+    | (Symbol (sym)) -> check_variable_with_reserved_word_list sexpr
+
+    | (Pair(Symbol("quote"), Pair(body, Nil))) -> Const body
+   
+    | (Pair(Symbol("quasiquote"), Pair(sexpr, Nil))) ->
+      run (expand_qq sexpr)
+
+    | (Pair(Symbol("begin"), body)) ->
+      handle_begin body
+   
+    | (Pair(Symbol("set!"), (Pair(var, (Pair(sexpr, Nil)))))) ->
+      Set (run var, run sexpr)
+
+    | (Pair((Symbol("if")), (Pair(test, (Pair(dit, Nil)))))) ->
+      If (run test, run dit, Const Void)
+
+    | (Pair((Symbol("if")), (Pair(test, (Pair(dit, (Pair(dif, Nil)))))))) ->
+      If (run test, run dit, run dif) 
+
+    | (Pair((Symbol("lambda")), (Pair(argl, sexprl)))) ->                        
+      construct_the_proper_lambda argl sexprl 
+   
+    | (Pair((Symbol("or")), conditions)) ->
+      match_or conditions  
+
+    | (Pair((Symbol("and")), conditions)) ->
+      run (expand_and conditions)
+
+    | (Pair((Symbol("cond")), conditions)) ->
+      run (expand_cond conditions)
+
+    | (Pair((Symbol("define")), (Pair(name, expr)))) ->
+      (handle_define_versions name expr)  
+
+    | (Pair((Symbol("let")), (Pair(ribs, sexprs)))) ->   
+      run (expand_let ribs sexprs) 
+        
+    | (Pair((Symbol("let*")), (Pair(ribs, sexprs)))) ->
+      run (expand_let_star ribs sexprs) 
+
+    | (Pair((Symbol("letrec")), (Pair(ribs, sexprs)))) ->
+      run (expand_letrec ribs sexprs)
+
+    | (Pair((Pair((Symbol("lambda")), restOfLambda)), argl)) ->
+      Applic (run ((Pair((Symbol("lambda")), restOfLambda))), List.map run (scheme_list_to_ocaml_list argl)) 
+      
+    | (Pair((Symbol sym), argl)) ->
+      Applic (run (Symbol sym), List.map run (scheme_list_to_ocaml_list argl)) 
+   
+    | (Pair(proc, argl)) ->
+      Applic (run proc, List.map run (scheme_list_to_ocaml_list argl))
+
+    | _ -> raise X_syntax_error  ;;
+
+
+let tag_parse sexpr =  run sexpr;;
+    
+let read_expression string = tag_parse (Parser.read_sexpr string);;
+
+let read_expressions string = List.map tag_parse (Parser.read_sexprs string);;
+
+let rec expr_to_sexpr expr =
+
+  let handle_exprl exprl =
+    let exprl = List.map (function (expr) -> expr_to_sexpr expr) exprl in
+    make_Pairs exprl in
+    
+  let make_symbol_pairs argl = 
+    let argl = List.map (function (str) -> Symbol str) argl in
+    make_Pairs argl in
+
+  let rec make_Pairs2 argl =
+    match argl with
+    | car :: cdr -> 
+      if cdr = [] then car
+      else (Pair (car, make_Pairs2 cdr))
+    | _ -> raise X_this_should_not_happen in
+
+
+  let make_symbol_pairs2 argl p =
+    let argl = argl @ [p] in
+    let argl = List.map (function (str) -> Symbol str) argl in
+    make_Pairs2 argl in
+
+  let match_append rest expr =
+    match expr with
+    | Const (Pair (_,_)) -> (Pair (expr_to_sexpr ((Var "append")) , handle_exprl ([expr] @ [rest])))
+    | _ ->
+      match rest with 
+      | Const Nil ->  expr_to_sexpr expr 
+      | _ -> raise X_syntax_error in
+
+  match expr with
+  | Const ((Number _) as num) -> num
+  | Const Void -> Void
+  | Const ((Char _) as ch) -> ch
+  | Const ((Bool _) as boo) -> boo
+  | Const ((String _) as str) -> str
+  | Const ((Pair (_, _)) as body) -> (*Void *) (Pair(Symbol("quote"), Pair(body, Nil))) 
+  | Const sexpr -> (*sexpr *) (Pair(Symbol("quote"), Pair(sexpr, Nil)))
+  | Var (str) -> Symbol (str)
+
+  | If (test, dit, Const (Void)) ->
+    (Pair((Symbol("if")), (Pair(expr_to_sexpr test, (Pair(expr_to_sexpr dit, Nil))))))
+
+  | If (test, dit, dif) ->
+    (Pair((Symbol("if")), (Pair(expr_to_sexpr test, (Pair(expr_to_sexpr dit, (Pair(expr_to_sexpr dif, Nil))))))))
+
+  | Seq (exprl) -> (Pair((Symbol("begin")), handle_exprl exprl))
+
+  | Set (var, expr) -> (Pair((Symbol("set!")), (Pair(expr_to_sexpr var, (Pair(expr_to_sexpr expr, Nil)))))) 
+
+  | Def (var, expr) -> (Pair((Symbol("define")), (Pair(expr_to_sexpr var, (Pair(expr_to_sexpr expr, Nil))))))
+
+  | Or (conditions) ->  (Pair((Symbol("or")), handle_exprl conditions))
+
+  | LambdaSimple (argl, expr) -> (Pair((Symbol("lambda")), (Pair(make_symbol_pairs argl, (Pair(expr_to_sexpr expr, Nil)))))) 
+
+  | LambdaOpt (argl, p, expr) -> 
+    if argl = [] then
+      (Pair((Symbol("lambda")), (Pair((Symbol p), (Pair(expr_to_sexpr expr, Nil))))))     
+    else 
+      (Pair((Symbol("lambda")), (Pair((make_symbol_pairs2 argl p), (Pair(expr_to_sexpr expr, Nil)))))) 
+
+  | Applic (Var "append", [(Const first) ; rest]) -> 
+    (match_append rest (Const first))
+
+  | Applic (operator, exprl) -> (Pair (expr_to_sexpr operator, handle_exprl exprl));;
+
+let expression_to_string expr = 
+  Sexpr.sexpr_to_string (expr_to_sexpr expr);; 
+  
+let testMo sexprl = 
+      let sexprl = scheme_list_to_ocaml_list sexprl in
+      let exprList = List.map 
+          (function sexpr -> (*Const Void*)  tag_parse sexpr )
+                       sexprl in
+
+      let n = List.length exprList in
+      if n > 1 then 
+        Seq (exprList) 
+      else
+        List.hd exprList;;
+
+end;; (* struct Tag_Parser *)
+
+let test_parser string =
+  let expr = Tag_Parser.read_expression string in
+  let string' = (Tag_Parser.expression_to_string expr) in
+  Printf.printf "%s\n" string';;
+
+type var = 
+  | VarFree' of string
+  | VarParam' of string * int
+  | VarBound' of string * int * int;;
+
+type expr' =
+  | Const' of sexpr
+  | Var' of var
+  | Box' of var
+  | BoxGet' of var
+  | BoxSet' of var * expr'
+  | If' of expr' * expr' * expr'
+  | Seq' of expr' list
+  | Set' of expr' * expr'
+  | Def' of expr' * expr'
+  | Or' of expr' list
+  | LambdaSimple' of string list * expr'
+  | LambdaOpt' of string list * string * expr'
+  | Applic' of expr' * (expr' list)
+  | ApplicTP' of expr' * (expr' list);;
+
+module type SEMANTICS = sig
+  val run_semantics : expr -> expr'
+  val annotate_lexical_addresses : expr -> expr'
+  val annotate_tail_calls : expr' -> expr'
+  val box_set : expr' -> expr'
+end;;
+
+module Semantics : SEMANTICS = struct
+
+    let level_up scope = List.map (fun e -> match e with 
+      |  (str, l1, l2) -> (str, l1+1, l2)) scope;;
+
+    let extend_scope scope params = (List.map (fun e -> match e with 
+      | (str,n) -> (str,0,n)) params)@scope;;
+
+    let rec gen_params params n = match params with 
+      | [] -> []
+      | head::tail -> (head,n)::(gen_params tail (n+1));;
+
+    let rec get_param_loc params str = match params with
+      | [] -> -1
+      | (s,n)::tail when s = str -> n
+      | _::tail -> get_param_loc tail str;;
+
+    let rec get_bound_loc params str = match params with
+      | [] -> (-1,-1)
+      | (s,n,k)::tail when s = str -> (n-1,k)
+      | _::tail -> get_bound_loc tail str;;
+  
+    let rec analyze e scope params = 
+      match e with
+      | Const (sxpr) -> Const' (sxpr)
+      | Var (str) -> 
+	let ploc = (get_param_loc params str) in
+	if (ploc <> -1) then
+	  Var'(VarParam'(str,ploc)) else 
+	  let (n,k) = (get_bound_loc scope str) in
+	  if (n <> -1) then
+	    Var'(VarBound'(str,n,k)) else
+	    Var'(VarFree'(str))
+      | If (expr1, expr2, expr3) -> If' (analyze expr1 scope params, 
+					 analyze expr2 scope params, 
+					 analyze expr3 scope params)
+      | Seq (lst_expr) -> Seq' (List.map (fun e -> analyze e scope params) lst_expr)
+      | Set (expr1, expr2) -> Set' (analyze expr1 scope params, 
+				    analyze expr2 scope params)
+      | Def (expr1, expr2) -> Def' (analyze expr1 scope params, 
+				    analyze expr2 scope params)
+      | Or (lst_expr) -> Or' (List.map (fun e -> analyze e scope params) lst_expr)
+      | LambdaSimple (lst_str, expr) -> 
+	let pars = (gen_params lst_str 0) in
+	LambdaSimple' (lst_str, analyze expr (extend_scope (level_up scope) pars) pars)
+      | LambdaOpt (lst_str, str, expr) -> 
+	let pars = (gen_params (lst_str@[str]) 0) in
+	LambdaOpt' (lst_str, str, analyze expr (extend_scope (level_up scope) pars) pars)
+      | Applic  (expr1 ,(lst_expr)) -> 
+	Applic'(analyze expr1 scope params, (List.map (fun e -> analyze e scope params) lst_expr));;
+
+
+
+    let rec run expr' in_tail = 
+
+      let get_cdr_car lst_expr =
+        let all_but_last = List.rev(List.tl(List.rev lst_expr)) in
+        let last = List.nth lst_expr ((List.length lst_expr) -1) in
+        (all_but_last, last) in
+
+      let handle_Seq' lst_expr =
+        let (all_but_last, last) = get_cdr_car lst_expr in
+        Seq' ((List.map (fun (x) -> (run x false)) all_but_last) @ [(run last in_tail)]) in
+
+      let handle_Or' lst_expr =
+        let (all_but_last, last) = get_cdr_car lst_expr in
+        Or' ((List.map (fun (x) -> (run x false)) all_but_last) @ [(run last in_tail)]) in
+
+    match expr' with 
+    | Const' _ | Var' _ -> expr'
+    | If' (test, dit, dif) -> If' (run test false, run dit in_tail, run dif in_tail)
+    | Seq' (lst_expr') -> handle_Seq' lst_expr'
+    | Set' (e1, e2) -> Set' (run e1 false, run e2 false)
+    | Def' (e1, e2) -> Def' (run e1 false, run e2 false)
+    | Or' (lst_expr') -> handle_Or' lst_expr'
+    | LambdaSimple' (lst_str, expr') -> LambdaSimple' (lst_str, run expr' true)
+    | LambdaOpt' (lst_str, str, expr') -> LambdaOpt' (lst_str, str, run expr' true)
+    | Applic' (expr', lst_expr') ->
+      if in_tail then ApplicTP' (run expr' false, List.map (fun (x) -> (run x false)) lst_expr')
+      else Applic' (run expr' false, List.map (fun (x) -> (run x false)) lst_expr')
+    | _ -> raise X_this_should_not_happen;;
+            
+
+let annotate_lexical_addresses e = analyze e [] [];;
+
+let annotate_tail_calls e = run e false;;
+
+let orf x y = (x || y);;
+
+let rec is_get e var = match e with
+  | Var'(VarParam'(str,_)) when str = var -> true 
+  | Var'(VarBound' (str, _, _)) when str = var -> true
+  | If' (expr1, expr2, expr3) -> 
+    (is_get expr1 var) || (is_get  expr2 var) || (is_get expr3 var)
+  | Seq' (exprs) | Or' (exprs) -> 
+    List.fold_left orf false (List.map (fun e -> is_get e var) exprs)
+  | Set' (_,expr2) -> (is_get expr2 var)
+  | Def' (expr1,expr2) -> (is_get  expr1 var)||(is_get expr2 var)
+  | LambdaSimple' (str_lst, expr) when not (List.mem var str_lst) -> (is_get  expr var)
+  | LambdaOpt' (str_lst, str, expr)  when 
+not ((List.mem var str_lst)|| str=var) -> 
+    (is_get  expr var)
+  | Applic' (expr,exprs) | ApplicTP' (expr,exprs) -> 
+    (is_get expr var)||(List.fold_left orf false (List.map (fun e -> is_get e var) exprs))
+  | BoxSet'(_,expr) -> is_get expr var
+  | _ -> false
+;;
+
+let rec is_bound e var = match e with
+  | Var'(VarBound' (str, _, _)) when str = var -> true
+  | If' (expr1, expr2, expr3) -> 
+    (is_bound expr1 var) || (is_bound  expr2 var) || (is_bound expr3 var)
+  | Seq' (exprs) | Or' (exprs) -> 
+    List.fold_left orf false (List.map (fun e -> is_bound e var) exprs)
+  | Set' (expr1,expr2) -> (is_bound expr1 var)||(is_bound expr2 var)
+  | Def' (expr1,expr2) -> (is_bound  expr1 var)||(is_bound expr2 var)
+  | LambdaSimple' (str_lst, expr) when not (List.mem var str_lst) -> (is_bound  expr var)
+  | LambdaOpt' (str_lst, str, expr)  when 
+not ((List.mem var str_lst)|| str=var) -> 
+    (is_bound  expr var)
+  | Applic' (expr,exprs) | ApplicTP' (expr,exprs) -> 
+    (is_bound expr var)||(List.fold_left orf false (List.map (fun e -> is_bound e var) exprs))
+  | BoxSet'(_,expr) -> is_bound expr var
+  | _ -> false
+;;
+
+let rec has_set e var = match e with
+  | Set' (Var' (VarBound' (v, _, _)),_) when v = var -> true
+  | Set' (Var' (VarParam' (v, _)),_) when v = var -> true
+  | If' (expr1, expr2, expr3) -> 
+    (has_set expr1 var) || (has_set  expr2 var) || (has_set expr3 var)
+  | Seq' (exprs) | Or' (exprs) -> 
+    List.fold_left orf false (List.map (fun e -> has_set e var) exprs)
+  | Set' (expr1,expr2) | Def' (expr1,expr2) -> (has_set  expr1 var)||(has_set expr2 var)
+  | LambdaSimple' (str_lst, expr) when not (List.mem var str_lst)-> (has_set  expr var)
+  | LambdaOpt' (str_lst, str, expr)  when not ((List.mem var str_lst)|| str=var)-> 
+    (has_set  expr var)
+  | Applic' (expr,exprs) | ApplicTP' (expr,exprs) -> 
+    (has_set expr var)||(List.fold_left orf false (List.map (fun e -> has_set e var) exprs))
+  | BoxSet'(_,expr) -> has_set expr var
+  | _ -> false
+;;
+
+let rec replace_box e var = match e with
+  | Var'(VarParam'(str,n)) when str = var -> BoxGet'(VarParam'(str,n))
+  | Var'(VarBound' (str, n, k)) when str = var -> BoxGet' (VarBound' (str, n, k))
+  | Set' (Var' (VarBound' (v, n, k)), exp) when v = var -> 
+    BoxSet' (VarBound' (v, n, k), replace_box exp var)
+  | Set' (Var' (VarParam' (v, n)), exp) when v = var -> 
+    BoxSet' (VarParam' (v, n), replace_box exp var)
+  | If' (expr1, expr2, expr3) -> 
+    If' (replace_box expr1 var, replace_box expr2 var, replace_box expr3 var)
+  | Seq' (exprs) -> Seq' (List.map (fun e -> replace_box e var) exprs)
+  | Or' (exprs) -> Or' (List.map (fun e -> replace_box e var) exprs)
+  | Set' (expr1,expr2) -> Set' (replace_box  expr1 var,replace_box expr2 var)
+  | Def' (expr1,expr2) -> Def' (replace_box  expr1 var,replace_box expr2 var)
+  | LambdaSimple' (str_lst, expr) when not (List.mem var str_lst)-> 
+    LambdaSimple' (str_lst ,(replace_box  expr var))
+  | LambdaOpt' (str_lst, str, expr)  when not ((List.mem var str_lst)|| str=var) -> 
+    LambdaOpt' (str_lst, str, (replace_box  expr var))
+  | Applic' (expr,exprs) ->
+    Applic' (replace_box expr var,List.map (fun e -> replace_box e var) exprs)
+  | ApplicTP' (expr,exprs) -> 
+    ApplicTP' (replace_box expr var,List.map (fun e -> replace_box e var) exprs)
+  | BoxSet'(varb,expr) -> BoxSet' (varb, replace_box expr var)
+  | exp -> exp
+;;
+
+let encapsulate_with_seq var exp num = 
+  let new_box = Set'(Var' (VarParam'(var, num)), Box'(VarParam'(var, num))) in
+  match exp with
+  | Seq'(exprs) -> Seq'(new_box::exprs) 
+  | exp -> Seq'(new_box::[exp])
+
+let rec box_hlpr e = 
+  let rec check_replace var_lst exp num = 
+    match var_lst with 
+    | [] -> exp
+    | head::tail -> if (is_bound exp head) && (is_get exp head) && (has_set exp head) then
+	check_replace tail (encapsulate_with_seq head (replace_box exp head) num) (num+1)
+      else (check_replace tail exp (num+1)) in
+  match e with
+  | LambdaSimple' (str_lst, expr) -> let ne = check_replace str_lst expr 0 in
+    LambdaSimple' (str_lst , (box_hlpr ne))
+  | LambdaOpt' (str_lst, str, expr) -> let ne = check_replace (str_lst@[str]) expr 0 in
+    LambdaOpt' (str_lst, str, (box_hlpr ne))
+  | If' (expr1, expr2, expr3) -> 
+    If' (box_hlpr expr1 , box_hlpr expr2 , box_hlpr expr3 )
+  | Seq' (exprs) -> Seq' (List.map (fun e -> box_hlpr e) exprs)
+  | Or' (exprs) -> Or' (List.map (fun e -> box_hlpr e ) exprs)
+  | Set' (expr1,expr2) -> Set' (box_hlpr  expr1 ,box_hlpr expr2 )
+  | Def' (expr1,expr2) -> Def' (box_hlpr  expr1 ,box_hlpr expr2 )
+  | Applic' (expr,exprs) ->
+    Applic' (box_hlpr expr ,List.map (fun e -> box_hlpr e) exprs)
+  | ApplicTP' (expr,exprs) -> 
+    ApplicTP' (box_hlpr expr ,List.map (fun e -> box_hlpr e ) exprs)
+  | BoxSet'(varb, expr) -> BoxSet'(varb, box_hlpr expr)
+  | exp -> exp
+;;
+
+
+let box_set e = box_hlpr e;;
+
+let run_semantics expr =
+  box_set
+    (annotate_tail_calls
+       (annotate_lexical_addresses expr));;
+  
+end;; (* struct Semantics *)
+
+module type CODE_GEN = sig
+  val code_gen : expr' -> string
+  val compile_scheme_file : string -> string -> unit
+end;;
+
+exception X_const_not_found of sexpr;;
+exception X_freevar_not_found of string;;
+
+module Code_Gen (*: CODE_GEN*) = struct
+
+  (***************** const table handling *****************)
+
+  let global_const_table = ref [];;
+
+  let global_const_table_size = ref 0;;
+
+  let rec extract_consts e  = match e with
+    | Const' (sexpr) -> [sexpr]
+    | If' (expr1, expr2, expr3) -> 
+      (extract_consts expr1)@(extract_consts expr2)@(extract_consts expr3)
+    | Seq' (exprs) | Or' (exprs) -> 
+      List.fold_left List.append [] (List.map extract_consts  exprs)
+    | Set' (expr1,expr2) | Def' (expr1,expr2) -> (extract_consts  expr1 )@(extract_consts expr2 )
+    | LambdaSimple' (str_lst, expr) -> (extract_consts  expr )
+    | LambdaOpt' (str_lst, str, expr)  -> 
+      (extract_consts  expr )
+    | Applic' (expr,exprs) | ApplicTP' (expr,exprs) -> 
+      (extract_consts expr )@(List.fold_left List.append [] (List.map  extract_consts  exprs))
+    | BoxSet'(_,expr) -> extract_consts expr
+    | Var' (_) | Box'(_) | BoxGet'(_) -> []
+  ;;
+
+  let rec permutate_const const = match const with
+    | Pair (sexpr1 , sexpr2) as p -> (permutate_const sexpr1)@(permutate_const sexpr2)@[p]
+    | Vector (sexprs) as s -> 
+      (List.fold_left List.append [] (List.map permutate_const sexprs))@[s]
+    | Symbol (str) as s -> [String(str)]@[s]
+    | sexpr -> [sexpr];;
+
+  let permutate_consts consts = 
+    List.fold_left List.append [] (List.map permutate_const consts);;
+
+  let append_defaults consts = 
+    [Void]@[Nil]@[Bool(false)]@[Bool(true)]@consts;;
+
+  let rem_duplicates lst =
+    List.rev (List.fold_left (fun acc x -> if List.mem x acc then acc else x::acc) [] lst);;
+
+  let rec query_mem_addr table const = match table with 
+    | [] -> raise (X_const_not_found const)
+    | (cnst, addr, _)::tail when cnst = const -> addr
+    | _::tail -> query_mem_addr tail const;;
+
+  let rec build_const_table_hlpr consts mem_start acc = match consts with
+    | [] ->  List.rev acc
+    | cnst::tail ->   
+      let trans = match cnst with
+	| Void  -> [937610]
+	| Bool (true)  -> [741553; 1]
+	| Bool (false)  -> [741553; 0]
+	| Nil -> [722689]
+	| Number (Int (int)) -> [945311; int]
+	| Number (Fraction {numerator = num; denominator = den}) -> [451794; num; den] 
+	| Char (char) -> [181048;  (Char.code char)]
+	| String (string) -> let chars = (string_to_list string) in
+			     [799345]@[List.length chars]@(List.map Char.code chars)
+	| Symbol (string) -> [368031; query_mem_addr acc (String(string))]
+	| Pair (sexpr1 , sexpr2)  -> 
+	  [885397; query_mem_addr acc sexpr1 ; query_mem_addr acc sexpr2]
+	| Vector (sexpr_list) -> 
+	  [335728]@[List.length sexpr_list]@(List.map (fun x -> query_mem_addr acc x) sexpr_list) in 
+      build_const_table_hlpr tail (mem_start + (List.length trans)) ((cnst, mem_start, trans)::acc)
+  ;;
+
+  let const_memory_start_addr = ref 10;;
+
+  let rec build_const_table consts = build_const_table_hlpr consts !const_memory_start_addr [];; 
+
+  let const_table_from_expr e =  
+    build_const_table (rem_duplicates (append_defaults (permutate_consts (extract_consts e))));;
+
+  let const_table_from_exprs es = 
+    let aggr = List.fold_left List.append [] (List.map extract_consts es) in
+    build_const_table (rem_duplicates (append_defaults (permutate_consts aggr)));;
+
+  let test_consts str =  
+    const_table_from_expr (Semantics.run_semantics (Tag_Parser.read_expression str));;
+
+  (* queries the global table for the const addr *)
+  let query_const const = 
+    query_mem_addr !global_const_table const;;
+
+  (***************** freevar handling *****************)
+  let global_freevar_table = ref [];;
+
+  let global_freevar_table_size = ref 0;;
+
+  let freevar_memory_start_addr = ref 2000;;
+
+  (* Add all assembly function definitions here: *)
+  let asm_lib_functions = [
+    ("car", "L_CAR");
+    ("cdr", "L_CDR");
+    ("cons", "L_CONS");
+    ("eq?", "L_EQ");
+    ("boolean?", "L_BOOLEAN");
+    ("char?", "L_CHAR");
+    ("char->integer", "L_CHAR_TO_INT");
+    ("integer?", "L_INTEGER");
+    ("integer->char", "L_INTEGER_TO_CHAR");
+    ("null?", "L_NULL"); 
+    ("pair?", "L_PAIR");
+    ("procedure?", "L_PROCEDURE");
+    ("remainder", "L_REMAINDER");
+    ("string?", "L_STRING");
+    ("string-ref", "L_STRING_REF");
+    ("string-set!", "L_STRING_SET");
+    ("string-length", "L_STRING_LEN");
+    ("string->symbol", "L_STR_TO_SYM");
+    ("symbol->string", "L_SYM_TO_STR");
+    ("make-string", "L_MAKE_STRING");
+    ("symbol?", "L_SYMBOL");
+    ("vector?", "L_VECTOR"); 
+    ("make-vector", "L_MAKE_VECTOR");
+    ("vector", "L_NEW_VECTOR");
+    ("vector-length", "L_VECTOR_LEN");
+    ("vector-set!", "L_VECTOR_SET");
+    ("vector-ref", "L_VECTOR_REF");
+    ("rational?", "L_RATIONAL");
+    ("number?", "L_RATIONAL");
+    ("set-car!", "L_SET_CAR");
+    ("set-cdr!", "L_SET_CDR");
+    ("denominator", "L_DENOMINATOR");
+    ("numerator", "L_NUMERATOR");
+    ("zero?", "L_ZERO"); 
+    ("multiply", "L_MULTIPLY"); 
+    ("divide", "L_DIVIDE"); 
+    ("add", "L_ADD"); 
+    ("subtract", "L_SUBTRACT"); 
+    ("arith-lt-zero", "L_ARITH_LT_ZERO"); 
+    ("arith-gt-zero", "L_ARITH_GT_ZERO"); 
+    ("apply", "L_APPLY"); 
+  ];;
+
+  let rec extract_freevars e  = match e with
+    | Var' (VarFree'(str)) -> [str]
+    | Box' (VarFree'(str)) -> [str]
+    | BoxGet' (VarFree'(str)) -> [str]
+    | If' (expr1, expr2, expr3) -> 
+      (extract_freevars expr1)@(extract_freevars expr2)@(extract_freevars expr3)
+    | Seq' (exprs) | Or' (exprs) -> 
+      List.fold_left List.append [] (List.map extract_freevars  exprs)
+    | Set' (expr1,expr2) | Def' (expr1,expr2) -> (extract_freevars  expr1 )@(extract_freevars expr2 )
+    | LambdaSimple' (str_lst, expr) -> (extract_freevars  expr )
+    | LambdaOpt' (str_lst, str, expr)  -> 
+      (extract_freevars  expr )
+    | Applic' (expr,exprs) | ApplicTP' (expr,exprs) -> 
+      (extract_freevars expr )@(List.fold_left List.append [] (List.map  extract_freevars  exprs))
+    | BoxSet'(VarFree'(str),expr) -> [str]@(extract_freevars expr)
+    | BoxSet'(_,expr) -> extract_freevars expr
+    | _ -> []
+  ;;
+
+  let rec build_freevar_table_hlpr var_lst addr = match var_lst with
+    | [] -> []
+    | head::tail -> (addr, head)::(build_freevar_table_hlpr tail (addr + 1));;
+
+  let build_freevar_table var_lst = build_freevar_table_hlpr var_lst !freevar_memory_start_addr;;
+
+  let add_asm_libs var_lst = (List.map (fun (x,y) -> x) asm_lib_functions)@var_lst;;
+
+  let freevar_table_from_expr e =  
+    build_freevar_table (rem_duplicates (add_asm_libs (extract_freevars e)));;
+
+  let freevar_table_from_exprs es = 
+    let aggr = List.fold_left List.append [] (List.map extract_freevars es) in
+    build_freevar_table (rem_duplicates  (add_asm_libs aggr));;
+
+  let rec query_freevar_mem_addr table freevar = match table with 
+    | [] -> raise (X_freevar_not_found freevar)
+    | (addr, fv)::tail when fv = freevar -> addr
+    | _::tail -> query_freevar_mem_addr tail freevar;;
+
+  let query_freevar freevar = 
+    query_freevar_mem_addr !global_freevar_table freevar;;
+
+  (* returns next number to be used in labels *)
+  let gen_num =
+    let r = ref 0 in
+    let next () = r := !r+1; string_of_int !r in
+    next;;
+
+  (* handy functino to generate C-style comments *)
+  let comment str = 
+    "/* " ^ str ^ " */\n";;
+  
+  let synchronize_between_environments num_of_closures =
+    let n = gen_num () in
+    "MOV(R4, IMM(1));\n" ^
+    "MOV(R5, IMM(0));\n" ^
+    "L_LOOP_" ^ n ^ ":\n" ^
+    "CMP(R5," ^ (string_of_int num_of_closures) ^ ");\n" ^
+    "JUMP_EQ(L_LOOP_END_" ^ n ^ ");\n" ^
+    "MOV(INDD(R1,R4), INDD(R2,R5));\n" ^
+    "INCR(R4);\n" ^
+    "INCR(R5);\n" ^
+    "JUMP(L_LOOP_" ^ n ^ ");\n" ^
+    "L_LOOP_END_" ^ n ^ ":\n";;
+
+  let add_last_closure_to_env () = 
+    let n = gen_num () in
+    "MOV(R4, IMM(0));\n" ^
+    "MOV(R5, FPARG(1));\n" ^
+    "L_LOOP_" ^ n ^ ":\n" ^
+    "CMP(R4,R5);\n" ^
+    "JUMP_EQ(L_LOOP_END_" ^ n ^ ");\n" ^
+    "MOV(INDD(R3,R4), FPARG(2+R4));\n" ^
+    "INCR(R4);\n" ^
+    "JUMP(L_LOOP_" ^ n ^ ");\n" ^
+    "L_LOOP_END_" ^ n ^ ":\n";; 
+
+  let rec run e num_of_closures = 
+
+    let const_gen sexpr = 
+      "MOV(R0,IMM("^ (string_of_int (query_const sexpr)) ^"));\n" in
+
+    let enlarge_and_synchronize_env num_of_closures =
+	"PUSH(IMM(" ^ (string_of_int num_of_closures) ^ "));    " ^ 
+	(comment "enlarge the env") ^
+	"CALL(MALLOC);\n" ^
+	"DROP(1);\n" ^
+	"MOV(R1, R0);    " ^ (comment "R1 holds the address of the new env") ^ 
+	"MOV(R2, FPARG(0));    " ^ (comment "R2 holds the env") ^
+
+	(comment "synchronize between R1 and R2 (the environments)") ^
+        (synchronize_between_environments num_of_closures) ^
+
+	(comment "add the last closure to env[0]") ^
+	"PUSH(FPARG(1));\n" ^
+	"CALL(MALLOC);\n" ^
+	"DROP(1);\n" ^
+	"MOV(R3, R0);\n" ^
+	(add_last_closure_to_env ()) ^
+	"MOV(INDD(R1,0), R3);\n" in
+
+    let construct_closure n = 
+      (comment "construct the new closure and put it in R0") ^
+	"PUSH(IMM(3));\n" ^
+	"CALL(MALLOC);\n" ^
+	"DROP(1);\n" ^
+	"MOV(INDD(R0,0), IMM(T_CLOSURE));\n" ^
+	"MOV(INDD(R0,1), R1);\n" ^
+	"MOV(INDD(R0,2), LABEL(L_BODY_" ^ n ^ "));\n" ^
+	"JUMP(L_EXIT_" ^ n ^ ");\n" in
+
+    let the_body_of_the_body_of_lambda expr new_env_size = 
+      "PUSH(FP);\n" ^
+	"MOV(FP,SP);\n" ^
+	(run expr new_env_size) ^ "\n" ^
+	"POP(FP);\n" ^
+	"RETURN;\n" in
+
+    let end_of_lambda n =
+      "L_EXIT_" ^ n ^ ":\n" 
+    in
+
+    let code_gen_lambdaSimple params expr num_of_closures =
+      let n = gen_num () in
+      let new_env_size = 1 + num_of_closures in
+
+      (enlarge_and_synchronize_env num_of_closures) ^
+	(construct_closure n) ^
+
+	(comment ("the **BODY** of the Lambda-Simple of params: " ^ (String.concat ", " params))) ^
+	"L_BODY_" ^ n ^ ":\n" ^
+	(the_body_of_the_body_of_lambda expr new_env_size) ^
+
+	(end_of_lambda n)^
+
+	(comment "END of the generating of Lambda-Simple")  in
+
+    
+    let make_pairs_of_optional_param num_of_params =
+      let n_loop = gen_num () in
+
+      "PUSH(R0);\n" ^
+	"CALL(MAKE_SOB_NIL);\n" ^
+	"MOV(R1,R0);\n" ^
+	"POP(R0);\n" ^
+
+	(comment "make a list out of the optional arguments") ^
+	"MOV(R5, STACK(SP-3));\n" ^
+	"L_LOOP_" ^ n_loop ^ ":\n" ^
+	"CMP(R5," ^ (string_of_int num_of_params) ^ ");\n" ^
+	"JUMP_EQ(L_LOOP_END_" ^ n_loop ^ ");\n" ^
+	(comment "make pair") ^
+	"PUSH(R0);\n" ^
+	"PUSH(R1);\n" ^
+	"PUSH(STACK(R2-3-R5));\n" ^
+	"CALL(MAKE_SOB_PAIR);\n" ^
+	"DROP(2);\n" ^
+	"MOV(R1, R0);\n" ^
+	"POP(R0);\n" ^
+	"DECR(R5);\n" ^
+	"JUMP(L_LOOP_" ^ n_loop ^ ");\n" ^
+	"L_LOOP_END_" ^ n_loop ^ ":\n" 	
+    in
+
+
+    let case_reduce_env num_of_params n =
+      let n_loop = gen_num () in
+
+      (comment "reduce the env") ^
+	"MOV(R2,SP);\n" ^
+	"MOV(R3,STACK(SP-3));    " ^ (comment "R3 holds the number of the arguments") ^
+        "MOV(R6, R3-" ^ (string_of_int num_of_params) ^ ");    " ^ (comment "R6 holds the number od the optional params") ^
+        (make_pairs_of_optional_param num_of_params) ^
+	"MOV(STACK(R2-3-R3), R1);\n" ^
+	"MOV(R7, STACK(SP-2));    " ^ (comment "R7 holds the env") ^
+	"MOV(R8, STACK(SP-1));    " ^ (comment "R8 holds the return address") ^
+	
+	(comment "step down the arguments") ^
+	"MOV(R5, " ^ (string_of_int num_of_params) ^ ");\n" ^
+	"L_LOOP_" ^ n_loop ^ ":\n" ^
+	"CMP(R5,IMM(0));\n" ^
+	"JUMP_EQ(L_LOOP_END_" ^ n_loop ^ ");\n" ^
+	"MOV(STACK(R2-2-R3+" ^ (string_of_int num_of_params) ^ "-R5), STACK(R2-3-R5));\n" ^
+	"DECR(R5);\n" ^
+	"JUMP(L_LOOP_" ^ n_loop ^ ");\n" ^
+	"L_LOOP_END_" ^ n_loop ^ ":\n" ^
+	
+        "DROP(R6-1+3);    " ^ (comment "update SP") ^	
+        "PUSH(" ^ (string_of_int num_of_params) ^ "+1);    " ^ (comment "update number of arguments") ^
+        "PUSH(R7);    " ^ (comment "push back the env") ^
+        "PUSH(R8);    " ^ (comment "push back the return address") ^
+
+	"JUMP(L_CONTINUE_BODY_OPT_" ^ n ^");\n"
+    in
+    
+    let case_enlarge_env num_of_params n = 
+      let n_loop = gen_num () in
+      "L_ENLARGE_ENV_" ^ n ^ ":\n" ^
+	"MOV(R1,SP);\n" ^
+	"PUSH(STACK(R1-1));    " ^ (comment "step up the return address") ^
+	"MOV(STACK(R1-1), STACK(R1-2));    " ^ (comment "step up the env") ^  
+	"MOV(STACK(R1-2), " ^ (string_of_int num_of_params) ^ "+1);    " ^ 
+	(comment "increment by 1 the number of arguments (params)") ^
+	
+	(comment "step up the arguments") ^
+	"MOV(R5, IMM(0));\n" ^
+	"L_LOOP_" ^ n_loop ^ ":\n" ^
+	"CMP(R5," ^ (string_of_int num_of_params) ^ ");\n" ^
+	"JUMP_EQ(L_LOOP_END_" ^ n_loop ^ ");\n" ^
+	"MOV(STACK(R1-3-R5), STACK(R1-4-R5));\n" ^
+	"INCR(R5);\n" ^
+	"JUMP(L_LOOP_" ^ n_loop ^ ");\n" ^
+	"L_LOOP_END_" ^ n_loop ^ ":\n" ^
+	
+	"PUSH(R0);\n" ^
+	"CALL(MAKE_SOB_NIL);\n" ^
+	"MOV(STACK(R1-3-" ^ (string_of_int num_of_params) ^ "), R0);    " ^ 
+	(comment "insert NIL as the optional parameter") ^
+	"POP(R0);\n"
+
+    in
+
+
+    let code_gen_lambdaOpt params str expr num_of_closures =
+      let n = gen_num () in
+      let new_env_size = 1 + num_of_closures in
+      let num_of_params = List.length params in
+
+      (enlarge_and_synchronize_env num_of_closures) ^
+	(construct_closure n) ^
+
+	(comment ("the **BODY** of the Lambda-Opt of params: " ^ 
+		     (String.concat ", " params) ^ "with optinal parameter: " ^ str)) ^
+	"L_BODY_" ^ n ^ ":\n" ^
+
+	"CMP(STACK(SP-3)," ^ (string_of_int num_of_params) ^ ");    " ^ 
+	(comment "compare the number of params with the number of arguments") ^
+	"JUMP_EQ(L_ENLARGE_ENV_" ^ n ^ ");\n" ^
+
+	(case_reduce_env num_of_params n) ^
+	(case_enlarge_env num_of_params n) ^
+
+	"L_CONTINUE_BODY_OPT_" ^ n ^ ":\n" ^
+	(the_body_of_the_body_of_lambda expr new_env_size) ^
+
+	(end_of_lambda n)^
+
+	(comment "END of the generating of Lambda-Opt")
+
+    in
+
+
+
+    let check_length_of_arg_list expr_lst =
+      if (List.length expr_lst) <> 0 then "PUSH(R0);\n"
+      else "" in
+
+    let push_args_numOfArgs_env expr expr_lst num_of_closures = 
+      (comment "push args to the stack") ^
+	(String.concat "PUSH(R0);\n" (List.map (fun (x) -> run x num_of_closures) 
+					(List.rev expr_lst))) ^
+	(check_length_of_arg_list expr_lst) ^
+	"PUSH(" ^ (string_of_int (List.length expr_lst)) ^ ");    " ^ 
+	(comment "push the number of arguments") ^
+	(comment "the code of the relevant procedure of the applic:") ^
+	(run expr num_of_closures) ^
+	(comment "check if the procedure is a valid procedure - if not, throw an exception") ^
+	"CMP(INDD(R0,0), IMM(T_CLOSURE));\n" ^
+	"JUMP_NE(L_EXCEPTION_NOT_A_PROCEDURE);\n" ^
+	"PUSH(INDD(R0,1));    " ^ (comment "push the environment") in
+
+    let call_the_proc =
+      "CALLA(INDD(R0,2));    " ^ (comment "apply the body of the procedure") in
+
+    let pop_all_args =
+      "POP(R1);\n" ^
+	"POP(R1);\n" ^
+	"DROP(R1);    " ^ (comment "drop the parameters") in
+
+    let code_gen_applic expr expr_lst num_of_closures = 
+      (push_args_numOfArgs_env expr expr_lst num_of_closures)^
+	call_the_proc ^
+	pop_all_args in
+
+    let overwrite_frame numOfParams=
+      let n = gen_num () in
+      (comment "overwrite the last frame:") ^
+
+     " MOV(R5, IMM(0));\n" ^
+      "L_LOOP_" ^ n ^ ":\n" ^
+      "CMP(R5,"^ (string_of_int numOfParams) ^"+2);\n" ^
+      "JUMP_GE(L_LOOP_END_" ^ n ^ ");\n" ^
+      "MOV(FPARG(1+R3-R5), STACK(FP+R5));\n" ^
+      "INCR(R5);\n" ^ 
+      "JUMP(L_LOOP_" ^ n ^ ");\n" ^
+      "L_LOOP_END_" ^ n ^ ":\n"
+      
+    in
+
+    let code_gen_applicTP expr expr_lst num_of_closures = 
+      (push_args_numOfArgs_env expr expr_lst num_of_closures) ^
+      "MOV(R1,STACK(FP-1));    " ^ (comment "mov R1 the old fp") ^
+      "MOV(R2,STACK(FP-2));    " ^ (comment "mov R2 the return address") ^
+      "MOV(R3, FPARG(1));\n" ^
+
+      (overwrite_frame (List.length expr_lst)) ^ "\n" ^
+
+      "DROP(R3+4);\n" ^
+      "PUSH(R2);    " ^ (comment "push old return address") ^
+      "MOV(FP,R1);\n" ^
+      "JUMPA(INDD(R0,2));    " ^ (comment "apply the body of the procedure") ^
+      pop_all_args 
+    in
+
+
+    match e with
+    | Const' (sexpr) -> 
+      comment ("getting const of " ^ Sexpr.sexpr_to_string sexpr) ^ 
+	(const_gen sexpr)
+
+    | Var' (VarFree' (v)) -> 
+      comment ("generating varFree for "^ v) ^
+	"MOV(R0,IND("^ (string_of_int (query_freevar v)) ^"));\n"
+
+    | Var' (VarParam' (v, minor)) -> 
+      comment ("generating varParam for "^ v ^"  with minor: " ^ string_of_int minor) ^
+	"MOV(R0, FPARG(" ^ (string_of_int (2+minor))  ^ "));\n"
+
+    | Var' (VarBound' (v, major, minor)) -> 
+      comment ("generating varBound for "^ v ^" with major: " ^ 
+		  string_of_int major ^ " minor: " ^ string_of_int minor) ^
+	"MOV(R0, FPARG(0));\n" ^
+	"MOV(R0, INDD(R0, " ^ (string_of_int major) ^ "));\n" ^
+	"MOV(R0, INDD(R0, " ^ (string_of_int minor) ^ "));\n"
+
+    | Box' (var) -> 
+      comment ("gen box'") ^
+	(run (Var' var) num_of_closures) ^ "\n" ^
+	"MOV(R1,R0);\n" ^
+	"PUSH(IMM(1));\n" ^
+	"CALL(MALLOC);\n" ^
+	"DROP(1);\n" ^
+	"MOV(ADDR(R0),R1);\n" 
+
+    | BoxGet' (var) -> 
+      comment ("gen boxget'") ^
+	(run (Var' var) num_of_closures) ^ "\n" ^
+	"MOV(R0,ADDR(R0));\n"
+
+    | BoxSet' (var , expr) -> 
+      comment ("gen boxset'") ^
+	(run expr num_of_closures) ^ "\n" ^
+	"MOV(R1,R0);\n" ^
+	(run (Var' var) num_of_closures) ^ "\n" ^
+	"MOV(ADDR(R0),R1);\n"
+
+    | If' (cond , dit , dif) -> 
+      let n = gen_num () in
+      comment "generating if" ^
+	(run cond num_of_closures) ^ "\n" ^
+	"CMP(R0, IMM("^ (string_of_int (query_const (Bool(false)))) ^"));\n" ^
+	"JUMP_EQ(L_IF_ELSE_"^n^");\n" ^
+        (run dit num_of_closures) ^ "\n" ^
+	"JUMP(L_IF_EXIT_"^n^");\n" ^
+	"L_IF_ELSE_"^n^":\n" ^
+	(run dif num_of_closures) ^ "\n" ^
+	"L_IF_EXIT_"^n^":"
+
+    | Seq' (exprs) -> 
+      comment "generating sequence" ^
+	String.concat "\n" (List.map (fun (x) -> run x num_of_closures) exprs)
+
+    | Set' (Var' (VarFree' v) , expr) -> 
+      comment ("gen set' with varfree for " ^ v) ^
+	(run expr num_of_closures) ^ "\n" ^
+	"MOV(IND("^ (string_of_int (query_freevar v)) ^"),R0);\n" ^
+	"MOV(R0, IMM("^ (string_of_int (query_const (Void))) ^"));\n" 
+
+    | Set' (Var' (VarParam' (v, minor)) , expr) -> 
+      comment ("gen set' with varparam for " ^ v) ^
+	(run expr num_of_closures) ^ "\n" ^
+	"MOV(FPARG(" ^ (string_of_int (2+minor))  ^ "),R0);\n" ^
+	"MOV(R0, IMM("^ (string_of_int (query_const (Void))) ^"));\n" 
+
+    | Set' (Var' (VarBound' (v, major, minor)) , expr) -> 
+      comment ("gen set' with varvound for " ^ v) ^
+	(run expr num_of_closures) ^ "\n" ^
+	"MOV(R1, FPARG(0));\n" ^
+	"MOV(R1, INDD(R1, " ^ (string_of_int major) ^ "));\n" ^
+	"MOV(INDD(R1, " ^ (string_of_int minor) ^ "), R0);\n" ^
+	"MOV(R0, IMM("^ (string_of_int (query_const (Void))) ^"));\n" 
+
+    | Set' (_) -> raise X_not_yet_implemented (* TODO? *)
+
+    | Def' (Var' (VarFree' var) , expr2) -> 
+      comment ("generating def with freevar: " ^ var) ^
+	(run expr2 num_of_closures) ^ 
+	"MOV(IND("^ (string_of_int (query_freevar var)) ^"), R0);\n" ^
+	"MOV(R0,"^(string_of_int (query_const Void))^");\n"
+
+    | Def' (_) -> raise X_not_yet_implemented (* TODO? *)
+
+    | Or' (exprs) -> 
+      let n = gen_num () in
+      comment "generating or" ^
+	String.concat ("\nCMP(R0, IMM("^ (string_of_int (query_const (Bool(false)))) ^ "));\n" ^ 
+			  "JUMP_NE(L_OR_EXIT_"^n^");\n")
+        (List.map (fun (x) -> run x num_of_closures) exprs) ^
+	"\nL_OR_EXIT_"^n^":"
+
+    | LambdaSimple' (params , expr) -> 
+      comment ("generating Lambda-Simple of params: " ^ (String.concat ", " params))
+      ^ code_gen_lambdaSimple params expr num_of_closures
+
+    | LambdaOpt' (params , str , expr) -> 
+      comment ("generating Lambda-Opt of params: " ^ (String.concat ", " params) ^ 
+		  "with optinal parameter: " ^ str)
+      ^ code_gen_lambdaOpt params str expr num_of_closures
+
+    | Applic' (expr , expr_lst) -> 
+      (comment "generating Applic") 
+      ^ code_gen_applic expr expr_lst num_of_closures
+
+    | ApplicTP' (expr , expr_lst) -> 
+      (comment "generating ApplicTP") 
+      ^ code_gen_applicTP expr expr_lst num_of_closures
+
+  ;;
+
+  let file_to_string input_file =
+    let in_channel = open_in input_file in
+    let rec run () =
+      try 
+	let ch = input_char in_channel in ch :: (run ())
+      with End_of_file ->
+	( close_in in_channel;
+          [] )
+    in list_to_string (run ());;
+
+  let string_to_file output_file out_string =
+    let out_channel = open_out output_file in
+    ( output_string out_channel out_string;
+      close_out out_channel );;
+
+  (*let symbol_list_mem_addr = 3000;;*)
+
+  (* making list of: [ptr_string; next] -> ... -> [nil] *)
+  let make_symbol_linked_list const_table t_start_addr= 
+    let rec filter_strings const_tab start_addr = match const_tab with
+      | [] -> []
+      | (String (_), str_addr , _)::tail -> [str_addr;start_addr+2]@
+	(filter_strings tail (start_addr +2))
+      | _::tail -> (filter_strings tail start_addr) in
+    let int_lst = (filter_strings const_table t_start_addr)@
+      [(query_const Nil)]@[(query_const Nil)] (*add nil as last elem *) in
+    (List.map string_of_int int_lst);;
+
+  let const_mem_layout const_table  = (List.fold_left List.append [] 
+					 (List.map (fun (_,_,lst) -> List.map string_of_int lst) 
+					    const_table));;
+
+  (* PROLOGUE *)
+  let prologue const_table freevar_table = 
+    let mem_layout = const_mem_layout const_table in
+    let rec ldcmd lst n = match lst with
+      | [] -> []
+      | head::tail -> ("MOV(ADDR("^(string_of_int n)^ 
+			  "),IMM("^head^"));")::(ldcmd tail (n+1)) in
+    let load_cmd =  (String.concat "\n" (ldcmd mem_layout !const_memory_start_addr)) in
+    let lib_def var label = 
+      "PUSH(LABEL("^ label ^"));
+PUSH(IMM(496351));
+CALL(MAKE_SOB_CLOSURE);
+DROP(2);
+MOV(IND("^ (string_of_int (query_freevar var)) ^"),R0);" in
+    let libs_cmd = (String.concat "\n" (List.map (fun (x,y) -> lib_def x y) 
+					  asm_lib_functions)) in
+    let symbol_list_mem_addr = 1 + !freevar_memory_start_addr + !global_freevar_table_size in
+    let sym_mem_layout = (make_symbol_linked_list const_table symbol_list_mem_addr) in
+    let sym_lst_cmd = (String.concat "\n" (ldcmd sym_mem_layout 
+					     symbol_list_mem_addr)) in
+    let usable_mem_start = 1 + symbol_list_mem_addr + (List.length sym_mem_layout) in
+    "
+#include <stdio.h>
+#include <stdlib.h>
+
+#define DO_SHOW 1 
+
+#include \"cisc.h\"
+
+int main()
+{
+  START_MACHINE;
+
+/* const memory load */
+"^ load_cmd ^"
+/* end const memory load */
+
+/* str_linked_list memory load */
+"^ sym_lst_cmd ^"
+/* end list memory load */
+
+
+  JUMP(CONTINUE);
+
+#define CONST_FALSE_ADDR "^(string_of_int (query_const (Bool(false))))^"
+#define CONST_TRUE_ADDR "^(string_of_int (query_const (Bool(true))))^"
+#define CONST_NIL_ADDR "^(string_of_int (query_const Nil))^"
+#define CONST_VOID_ADDR "^(string_of_int (query_const Void))^"
+#define STRING_LINKED_LIST_ADDR "^(string_of_int symbol_list_mem_addr)^"
+#define USABLE_MEM_START "^(string_of_int usable_mem_start)^"
+#include \"char.lib\"
+#include \"io.lib\"
+#include \"math.lib\"
+#include \"string.lib\"
+#include \"system.lib\"
+#include \"scheme.lib\"
+#include \"procedures.lib\"
+
+ CONTINUE:
+/* set mem start of mallocs (usable memory) */
+MOV(ADDR(0),IMM(USABLE_MEM_START));
+
+/* lib closure generation */
+"^ libs_cmd ^"
+/* end lib generation */
+
+/* start of code gen */
+";;
+
+(* EPILOGUE *)
+  let epilogue = "
+    
+  /* end of code gen */
+  STOP_MACHINE;
+  return 0;
+
+  L_EXCEPTION_NOT_A_PROCEDURE:
+    CALL(MAKE_SOB_VOID);
+    SHOW(\"Exception: attempt to apply non-procedure\", R0);
+    return 1;   
+}
+";;
+
+  let code_gen e = run e 0;;
+
+  let compile_scheme_file scm_source_file asm_target_file = 
+    let exprs = Tag_Parser.read_expressions ((file_to_string "scm_helper.scm") ^ (file_to_string scm_source_file)) in
+    let analyzed = List.map Semantics.run_semantics exprs in
+    let print_routine = 
+      comment "print result in r0" ^
+	"CALL(WRITE_R0_RESULT);\n\n" in
+    let code = 
+      const_memory_start_addr := 10; (* mem load start location *)
+      global_const_table := const_table_from_exprs analyzed;
+      global_const_table_size := List.length (const_mem_layout !global_const_table);
+      freevar_memory_start_addr := !const_memory_start_addr + !global_const_table_size + 1;
+      global_freevar_table := freevar_table_from_exprs analyzed;
+      global_freevar_table_size := List.length !global_freevar_table;
+      (String.concat print_routine (List.map code_gen analyzed)) ^ print_routine in
+    let final = (prologue !global_const_table !global_freevar_table) ^ code ^ epilogue in
+    string_to_file asm_target_file final;;
+
+  (* handy testing function *)
+  let test_scm str =
+    let analyzed = (Semantics.run_semantics (Tag_Parser.read_expression str)) in
+    global_const_table := const_table_from_expr analyzed;
+    global_const_table_size := List.length (const_mem_layout !global_const_table);
+    global_freevar_table := freevar_table_from_expr analyzed;
+    global_freevar_table_size := List.length !global_freevar_table;
+    print_string (code_gen analyzed);;
+
+end;; 

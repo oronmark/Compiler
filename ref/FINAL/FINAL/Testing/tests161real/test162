@@ -1,0 +1,7 @@
+;===
+; test 163
+(begin
+    (define m '(b c))
+    (define n '(d e))
+    `(a ,(list m n) f)
+  )

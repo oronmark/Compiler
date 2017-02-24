@@ -1,0 +1,4 @@
+;===
+; test 125
+(define f (lambda (v) (vector? v)))
+(f (vector 1 2 3 4))

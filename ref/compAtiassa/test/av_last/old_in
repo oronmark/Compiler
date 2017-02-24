@@ -1,0 +1,5 @@
+ (eq? 'bla (string->symbol "bla"))
+(define x (string->symbol "aaa"))
+x
+(define y (string->symbol "abc"))
+(eq? x (string->symbol "aaa"))

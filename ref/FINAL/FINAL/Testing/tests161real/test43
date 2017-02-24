@@ -1,0 +1,4 @@
+;===
+; test 44
+(define b (string-length "world"))
+b

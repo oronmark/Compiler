@@ -1,0 +1,3 @@
+;===
+; test 146
+((lambda (vec) (vector-length vec)) (make-vector 4))

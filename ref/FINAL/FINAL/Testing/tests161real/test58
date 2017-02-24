@@ -1,0 +1,3 @@
+;===
+; test 59
+(let ((square (lambda (x) (* x x)))) 33)

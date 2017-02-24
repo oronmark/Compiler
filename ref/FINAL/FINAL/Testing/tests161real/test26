@@ -1,0 +1,11 @@
+;===
+; test 27
+((lambda (x)
+      (begin
+        (define f1 (lambda (a) (+ a a)))
+        (define f2 (lambda (a) (* a a)))
+        (if (eq? (f1 x) (f2 x))
+            'eq!
+            )
+        )
+      ) 2)

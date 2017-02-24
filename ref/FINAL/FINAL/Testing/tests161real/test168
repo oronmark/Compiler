@@ -1,0 +1,4 @@
+;===
+; test 169
+(define (f . x) (apply + x))
+(f 5 4 8 6)

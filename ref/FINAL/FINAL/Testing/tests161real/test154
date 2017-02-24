@@ -1,0 +1,3 @@
+;===
+; test 155
+(letrec ((loop (lambda (i a) (set! a (+ (* 6 a) i)) (if (< i 10) (loop (+ i 1) a) a)))) (loop 0 0)))

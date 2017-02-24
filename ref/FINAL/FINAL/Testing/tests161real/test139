@@ -1,0 +1,3 @@
+;===
+; test 140
+(map boolean? '(#t #t #f "bla")))

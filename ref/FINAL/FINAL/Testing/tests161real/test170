@@ -1,0 +1,10 @@
+;===
+; test 171
+(define komodo 'komodo)
+(define armadilo 'armadilo)
+((lambda (x y)
+                  (if (> (string-length (symbol->string x)) (string-length (symbol->string y)))
+                      `(,x is greater than ,y)
+                      )
+                  )
+ armadilo komodo)

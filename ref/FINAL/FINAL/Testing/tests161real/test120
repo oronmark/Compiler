@@ -1,0 +1,3 @@
+;===
+; test 121
+(string->symbol ((lambda (b) (symbol->string b)) 'a))

@@ -1,0 +1,8 @@
+;===
+; test 127
+(define f (lambda (v b x) (if (and (vector? v) (> (vector-length v) b))
+                                (begin
+                                  (vector-set! v b x)
+                                  (vector-ref v 2))
+                              `bla)))
+(f (vector 1 2 3 4) 2 500)

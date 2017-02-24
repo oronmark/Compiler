@@ -1,0 +1,3 @@
+;===
+; test 143
+((lambda (int) (if (integer? int) (vector-ref (make-vector int 1) 0)))4)

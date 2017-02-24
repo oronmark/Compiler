@@ -1,0 +1,3 @@
+;===
+; test 108
+(pair? (lambda (a b) (cons a b)))

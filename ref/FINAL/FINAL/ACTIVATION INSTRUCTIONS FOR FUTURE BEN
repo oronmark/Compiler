@@ -1,0 +1,16 @@
+Hello Future Ben!:
+
+
+1. Add to "faultytests" folder some test files with scheme code.
+2. Run comperator in terminal: ./faultytests.sh (it will iterate on all files in "faultytests" and compare the results with petite.)
+3. Press ctrl-c to exit the comperator or 'enter' for next test.
+
+- To run the last test again, run ./out_test
+- To recompile .c file with gcc, write: gcc -o out_test out_test.c
+- To recompile test file with ocaml, use ./faultytests.sh again and ctrl-c when test file result is shown in terminal.
+- To use debugger simply add "BP;" anywhere in the code, recompile with gcc and run ./out_test again.
+
+
+Compile automatically without 'Enter' for next test:
+1. Add to "tests" folder some test foles with scheme code
+2. Run comperator in terminal: ./run_tests.sh (it will iterate automatically on all files in "tests" and compare the results with petite)

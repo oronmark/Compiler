@@ -1,0 +1,3 @@
+;===
+; test 142
+(map (lambda (x) (if (string? x) (string->symbol x ))) '("a" "b" 3 + "f")))

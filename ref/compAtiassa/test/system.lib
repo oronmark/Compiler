@@ -1,0 +1,9 @@
+/* mem.asm
+ * A loader file for low-level system & memory-management library functions
+ *
+ * Programmer: Mayer Goldberg, 2010
+ */
+
+#include "lib/system/malloc.asm"
+#include "lib/system/primitive_procedure.asm"
+

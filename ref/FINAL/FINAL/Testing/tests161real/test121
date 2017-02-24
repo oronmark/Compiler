@@ -1,0 +1,3 @@
+;===
+; test 122
+(vector? (make-vector 4))

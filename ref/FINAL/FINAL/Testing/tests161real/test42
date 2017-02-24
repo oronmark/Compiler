@@ -1,0 +1,4 @@
+;===
+; test 43
+(define a 'hello)
+a

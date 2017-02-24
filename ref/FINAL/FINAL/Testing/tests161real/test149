@@ -1,0 +1,8 @@
+ ;===
+; test 150
+(string->symbol ((lambda (sym int) (if (symbol? sym) (begin
+                                    (set! a (symbol->string sym))
+                                    (string-set! a 1 (integer->char int))
+                                    a)
+                            )
+    ) 'abc 99))

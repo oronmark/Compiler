@@ -1,0 +1,9 @@
+;===
+; test 36
+(define (sq j)
+    (cond
+      ((= j 1) 1)
+      (else
+    (* (/ j 2) (/ j 2)))))
+	
+(sq 12)

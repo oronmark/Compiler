@@ -1,0 +1,8 @@
+;===
+; test 145
+(string? (lambda () (begin
+    (define vec (make-vector 4))
+    (vector-set! vec 1 4)
+    (vector-set! vec 3 'b)
+    (if (symbol? (vector-ref vec 3)) (symbol->string (vector-ref vec 3)))
+    )))

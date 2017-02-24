@@ -1,0 +1,6 @@
+;===
+; test 19
+(define even?
+          (lambda (x)
+            (or (= x 0) (not (even? (- x 1))))))
+(even? 129)

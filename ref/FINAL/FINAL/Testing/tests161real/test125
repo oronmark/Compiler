@@ -1,0 +1,6 @@
+;===
+; test 126
+(define f (lambda (v b) (if (and (vector? v) (> (vector-length v) b))
+                              (vector-ref v b)
+                              `bla)))
+(f (vector 1 2 3 4) 2)

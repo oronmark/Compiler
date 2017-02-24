@@ -1,0 +1,3 @@
+;===
+; test 104
+((lambda (a) (boolean? a)) #t)

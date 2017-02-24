@@ -1,0 +1,8 @@
+;===
+; test 118
+(define (equal? x y)
+    (if (not (pair? x))
+        (eq? x y)
+        (and (equal? (car x) (car y))
+             (equal? (cdr x) (cdr y)))))
+(equal? (string-ref "hello!" 4) `#\o)

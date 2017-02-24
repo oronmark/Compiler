@@ -1,0 +1,15 @@
+;===
+; test 170
+(define f (lambda (x) 
+            (if
+             (= x 0) `done
+             (begin
+               (set! x (- x 1))
+               (f x)
+               )
+             
+             )
+            )
+  )
+	
+(f 3425)

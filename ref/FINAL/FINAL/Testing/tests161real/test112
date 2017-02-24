@@ -1,0 +1,4 @@
+;===
+; test 113
+(define a (lambda (b) (rational? b)))
+(a 56)

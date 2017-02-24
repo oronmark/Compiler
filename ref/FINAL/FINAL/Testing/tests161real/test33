@@ -1,0 +1,3 @@
+;===
+; test 34
+((lambda (a) (if (string? a) (string->symbol a))) "a23")

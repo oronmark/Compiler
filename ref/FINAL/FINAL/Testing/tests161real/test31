@@ -1,0 +1,4 @@
+;===
+; test 32
+(define (variable? x) (symbol? x))
+(variable? #t)

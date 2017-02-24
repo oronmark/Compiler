@@ -1,0 +1,8 @@
+;===
+; test 149
+ (string->symbol((lambda (str) (if (string? str) (begin
+                                     (string-set! str 1 (integer->char 98))
+                                      str)
+                      )
+      )
+  "ssss"))

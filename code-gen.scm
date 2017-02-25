@@ -20,8 +20,9 @@
 
 (define global-fvar-table '())
 
-
 (define lib-fun '())
+	
+;(define c '())
 
 (define compile-scheme-file
   (lambda (source target)
@@ -30,8 +31,9 @@
                                         (box-set 
                                           (remove-applic-lambda-nil 
                                             (eliminate-nested-defines 
-                                              (parse ex))))))) (string->sexpr (string->list (file->string source))))) 		  
-          (pe-lst (append lib-fun pe-lst-no-primitive))
+                                              (parse ex))))))) (append lib-fun (string->sexpr 
+   																		(string->list (file->string source))))))	  
+          (pe-lst (append '() pe-lst-no-primitive))
           (const-table  (make-const-table pe-lst))
           (free-var-table (make-fvar-table pe-lst const-table))
           (set-global-fvar-table-execute  (set! global-fvar-table free-var-table))
@@ -164,6 +166,12 @@
   (my-vector-set!)
   (my-binary=)
   (my-binary<)
+  (my-binary>)
+   (my-vector)
+   (my-make-vector)
+    (my-make-string)
+    (my-list)
+
 "/*-------------runtime-support-------------*/\n\n"
   
 "/*-------------fake frame--------------*/\n\n"
@@ -1376,24 +1384,24 @@
 		""))
 
 ; (define runtime-support-functions
-; 	'( apply < >   * -      
-; 	  eq? list  make-string make-vector   
+; 	'( apply   * -      
+; 	  eq?       
 ; 	   remainder 
-; 	     vector 
+; 	     
 ; 	     ))
 
-;; things is lib-fun.scm : map, /, append, +,  =
+;; things is lib-fun.scm : map, /, append, +,  = , < ,  >
 
 (define runtime-support-functions 
 	'(car cdr integer? char? pair? procedure? boolean? rational? null? string? symbol? string->symbol symbol->string oron/binary-div cons vector-ref
 		oron/binary-add string-length vector-length  number? numerator denominator not zero? char->integer integer->char string-ref vector?
-		 set-car! set-cdr! string-set! vector-set! oron/binary=  oron/binary<))
+		 set-car! set-cdr! string-set! vector-set! oron/binary=  oron/binary< oron/binary> vector make-vector make-string list))
 
 (define unify-fvar-w-runtime-support
 	(lambda (fvar-lst runtime-lst)
 		(cond ((and (null? fvar-lst) (null? runtime-lst)) fvar-lst)
 			   ((null? fvar-lst) (cons (car runtime-lst) (unify-fvar-w-runtime-support fvar-lst (cdr runtime-lst))))
-			   (else  (cons (car fvar-lst) (unify-fvar-w-runtime-support (cdr fvar-lst) runtime-lst))))))
+			   (else  (cons (car fvar-lst) (unify-fvar-w-runtime-support (cdr fvar-lst) runtime-lst ))))))
 
 
 (define make-fvar-table
@@ -1460,6 +1468,258 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; runtime support ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+(define my-list
+  (lambda()
+		(let ((address (get-fvar-address '(fvar list) global-fvar-table)))
+		(string-append
+			"//LIST\n"
+			"JUMP(L_create_my_list_clos);\n" 
+			"L_my_list_body:\n" 
+
+				"PUSH(FP);\n" 
+				"MOV(FP, SP);\n\n" 
+
+				"MOV(R1,SOB_NIL);\n"
+				"MOV(R2,FPARG(1));\n"
+
+				"L_my_list_start_loop:\n"
+					"CMP(R2,IMM(0));\n"
+					"JUMP_EQ(L_my_list_end_loop);\n"
+						"MOV(R3,FPARG(R2+1));\n"
+						"PUSH(R1);\n"
+						"PUSH(R3);\n"
+						"CALL(MAKE_SOB_PAIR);\n"
+						"DROP(IMM(2));\n"
+						"MOV(R1,R0);\n"
+						"ADD(R2,IMM(-1));\n"
+						"JUMP(L_my_list_start_loop);\n"
+
+				"L_my_list_end_loop:\n"
+					"MOV(R0,R1);\n"
+        
+
+                "POP(FP);\n" 
+				"RETURN;\n\n" 
+
+			"L_create_my_list_clos:\n" 
+				"PUSH(3);\n" 
+				"CALL(MALLOC);\n" 
+				"DROP(1);\n" 
+				"MOV(INDD(R0,0),IMM(T_CLOSURE));\n" 
+				"MOV(INDD(R0,1),IMM(0));\n" 
+				"MOV(INDD(R0,2),LABEL(L_my_list_body));\n" 
+				"MOV(IND(" (number->string address) "),R0);\n\n" ))))
+
+
+(define my-make-string
+  (lambda()
+		(let ((address (get-fvar-address '(fvar make-string) global-fvar-table)))
+		(string-append
+			"//MAKE-STRING\n"
+			"JUMP(L_create_my_make_string_clos);\n" 
+			"L_my_create_make_string_body:\n" 
+
+				"PUSH(FP);\n" 
+				"MOV(FP, SP);\n\n" 
+				"MOV(R1,FPARG(1));\n"
+				"MOV(R2,INDD(FPARG(2),1));\n" ; string len
+
+				"CMP(R1,IMM(2));\n"
+				"JUMP_EQ(L_my_make_string_2_arg);\n"
+
+				"L_my_make_string_1_arg:\n"
+					"MOV(R3,0);\n" ; char
+					"JUMP(L_my_make_string_cont);\n"
+
+				"L_my_make_string_2_arg:\n"
+					"MOV(R3,FPARG(3));\n" ; object
+					"MOV(R3,INDD(R3,1));\n"
+
+
+				;; R2 holds the vector length, R3 hold the object 
+				"L_my_make_string_cont:\n"
+
+					"MOV(R4,R2);\n"
+				
+					"L_my_make_string_start_loop:\n"
+						"CMP(R2,IMM(0));\n"
+						"JUMP_EQ(L_my_make_string_exit_loop);\n"
+							"PUSH(R3);\n"
+							"ADD(R2,IMM(-1));\n"
+							"JUMP(L_my_make_string_start_loop);\n"
+
+					"L_my_make_string_exit_loop:\n"
+					
+					"PUSH(R4);\n"
+					"CALL(MAKE_SOB_STRING);\n"
+					"DROP(R4+1);\n"               
+
+                "POP(FP);\n" 
+				"RETURN;\n\n" 
+
+			"L_create_my_make_string_clos:\n" 
+				"PUSH(3);\n" 
+				"CALL(MALLOC);\n" 
+				"DROP(1);\n" 
+				"MOV(INDD(R0,0),IMM(T_CLOSURE));\n" 
+				"MOV(INDD(R0,1),IMM(0));\n" 
+				"MOV(INDD(R0,2),LABEL(L_my_create_make_string_body));\n" 
+				"MOV(IND(" (number->string address) "),R0);\n\n" ))))
+
+
+(define my-make-vector
+  (lambda()
+		(let ((address (get-fvar-address '(fvar make-vector) global-fvar-table)))
+		(string-append
+			"//MAKE-VECTOR\n"
+			"JUMP(L_create_my_make_vector_clos);\n" 
+			"L_my_create_make_vector_body:\n" 
+
+				"PUSH(FP);\n" 
+				"MOV(FP, SP);\n\n" 
+				"MOV(R1,FPARG(1));\n"
+				"MOV(R2,INDD(FPARG(2),1));\n" ; vector len
+
+				"CMP(R1,IMM(2));\n"
+				"JUMP_EQ(L_my_make_vector_2_arg);\n"
+
+				"L_my_make_vector_1_arg:\n"
+					;"SHOW(\" R2: \", R2);\n"
+					"PUSH(IMM(0));\n"
+					"CALL(MAKE_SOB_INTEGER);\n"
+					"DROP(IMM(1));\n"
+					"MOV(R3,R0);\n" ; object
+					"JUMP(L_my_make_vector_cont);\n"
+
+				"L_my_make_vector_2_arg:\n"
+					"MOV(R3,FPARG(3));\n" ; object
+
+
+				;; R2 holds the vector length, R3 hold the object 
+				"L_my_make_vector_cont:\n"
+
+					"MOV(R4,R2);\n"
+				
+					"L_my_make_vector_start_loop:\n"
+						"CMP(R2,IMM(0));\n"
+						"JUMP_EQ(L_my_make_vector_exit_loop);\n"
+							"PUSH(R3);\n"
+							"ADD(R2,IMM(-1));\n"
+							"JUMP(L_my_make_vector_start_loop);\n"
+
+					"L_my_make_vector_exit_loop:\n"
+					
+					"PUSH(R4);\n"
+					"CALL(MAKE_SOB_VECTOR);\n"
+					"DROP(R4+1);\n"               
+
+                "POP(FP);\n" 
+				"RETURN;\n\n" 
+
+			"L_create_my_make_vector_clos:\n" 
+				"PUSH(3);\n" 
+				"CALL(MALLOC);\n" 
+				"DROP(1);\n" 
+				"MOV(INDD(R0,0),IMM(T_CLOSURE));\n" 
+				"MOV(INDD(R0,1),IMM(0));\n" 
+				"MOV(INDD(R0,2),LABEL(L_my_create_make_vector_body));\n" 
+				"MOV(IND(" (number->string address) "),R0);\n\n" ))))
+
+
+
+(define my-vector
+  (lambda()
+		(let ((address (get-fvar-address '(fvar vector) global-fvar-table)))
+		(string-append
+			"//VECTOR\n"
+			"JUMP(L_create_my_vector_clos);\n" 
+			"L_my_create_vector_body:\n" 
+
+				"PUSH(FP);\n" 
+				"MOV(FP, SP);\n\n" 
+				"MOV(R1,FPARG(1));\n;" ; vector len
+				"MOV(R4,FPARG(1));\n;"
+
+				"L_create_my_vector_loop:\n"
+					"CMP(R1,IMM(0));\n"
+					"JUMP_EQ(L_create_my_vector_exit_loop);\n"
+						"MOV(R2,FPARG(R4 - R1 + 2));\n"
+						"PUSH(R2);\n"
+						"ADD(R1,IMM(-1));\n"
+						"JUMP(L_create_my_vector_loop);\n"
+
+				"L_create_my_vector_exit_loop:\n"
+
+				"PUSH(FPARG(1));\n"
+				"CALL(MAKE_SOB_VECTOR);\n"
+				"DROP(FPARG(1) + 1);\n"
+                "POP(FP);\n" 
+				"RETURN;\n\n" 
+
+			"L_create_my_vector_clos:\n" 
+				"PUSH(3);\n" 
+				"CALL(MALLOC);\n" 
+				"DROP(1);\n" 
+				"MOV(INDD(R0,0),IMM(T_CLOSURE));\n" 
+				"MOV(INDD(R0,1),IMM(0));\n" 
+				"MOV(INDD(R0,2),LABEL(L_my_create_vector_body));\n" 
+				"MOV(IND(" (number->string address) "),R0);\n\n" ))))
+
+
+
+
+
+(define my-binary>
+  (lambda()
+		(let ((address (get-fvar-address '(fvar oron/binary>) global-fvar-table)))
+		(string-append
+			"//BINARY<\n"
+			"JUMP(L_create_my_binary_greater_then_clos);\n" 
+			"L_my_binary_greater_then_body:\n" 
+				"PUSH(FP);\n" 
+				"MOV(FP, SP);\n\n" 
+
+				"CMP(FPARG(1),2);\n"
+				"JUMP_EQ(L_my_binary_greater_then_2_args);\n"
+					"MOV(R0,FPARG(2));\n"
+					"CMP(IND(R0),T_INTEGER);\n"
+					"JUMP_NE(L_my_binary_greater_then_false);\n"
+						"MOV(R0,SOB_TRUE);\n"
+						"JUMP(L_exit_my_greater_then_equal);\n"
+
+				"L_my_binary_greater_then_2_args:\n"	
+				"MOV(R0,FPARG(2));\n"
+				"MOV(R1,FPARG(3));\n"
+				"CMP(IND(R0),T_INTEGER);\n"
+				"JUMP_NE(L_my_binary_greater_then_false);\n"
+				"CMP(IND(R1),T_INTEGER);\n"
+				"JUMP_NE(L_my_binary_greater_then_false);\n"
+
+				"CMP(INDD(R0,1),INDD(R1,1));\n"
+				"JUMP_LT(L_my_binary_greater_then_false);\n"
+				"CMP(INDD(R0,1),INDD(R1,1));\n"
+				"JUMP_EQ(L_my_binary_greater_then_false);\n"
+					"MOV(R0,SOB_TRUE);\n"
+					"JUMP(L_exit_my_greater_then_equal);\n"
+
+				"L_my_binary_greater_then_false:\n"
+				"MOV(R0,SOB_FALSE);\n"			
+
+				"L_exit_my_greater_then_equal:\n"
+
+                "POP(FP);\n" 
+				"RETURN;\n\n" 
+
+			"L_create_my_binary_greater_then_clos:\n" 
+				"PUSH(3);\n" 
+				"CALL(MALLOC);\n" 
+				"DROP(1);\n" 
+				"MOV(INDD(R0,0),IMM(T_CLOSURE));\n" 
+				"MOV(INDD(R0,1),IMM(0));\n" 
+				"MOV(INDD(R0,2),LABEL(L_my_binary_greater_then_body));\n" 
+				"MOV(IND(" (number->string address) "),R0);\n\n" ))))
 
 
 (define my-binary<
@@ -1687,7 +1947,7 @@
 		(let ((address (get-fvar-address '(fvar vector?) global-fvar-table)))
 		(string-append
 			"//VECTOR?\n"
-			"JUMP(L_create_my_vector_clos);\n" 
+			"JUMP(L_my_vector_clos);\n" 
 			"L_my_vector_body:\n" 
 				"PUSH(FP);\n" 
 				"MOV(FP, SP);\n\n" 
@@ -1706,7 +1966,7 @@
                 "POP(FP);\n" 
 				"RETURN;\n\n" 
 
-			"L_create_my_vector_clos:\n" 
+			"L_my_vector_clos:\n" 
 				"PUSH(3);\n" 
 				"CALL(MALLOC);\n" 
 				"DROP(1);\n" 

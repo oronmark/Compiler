@@ -153,6 +153,17 @@
   (my-numerator)
   (my-denominator)
   (my-not)
+  (my-zero?)
+  (my-char-to-integer)
+  (my-integer-to-char)
+  (my-string-ref)
+  (my-vector?)
+  (my-set-car!)
+  (my-set-cdr!)
+ (my-string-set!)
+  (my-vector-set!)
+  (my-binary=)
+  (my-binary<)
 "/*-------------runtime-support-------------*/\n\n"
   
 "/*-------------fake frame--------------*/\n\n"
@@ -1365,17 +1376,18 @@
 		""))
 
 ; (define runtime-support-functions
-; 	'( apply < = >   * - char->integer     
-; 	  eq? integer->char list  make-string make-vector   
-; 	   remainder set-car! set-cdr! 
-; 	  string-ref string-set!  vector 
-; 	   vector-set! vector? zero?))
+; 	'( apply < >   * -      
+; 	  eq? list  make-string make-vector   
+; 	   remainder 
+; 	     vector 
+; 	     ))
 
-;; things is lib-fun.scm : map, /, append, +
+;; things is lib-fun.scm : map, /, append, +,  =
 
 (define runtime-support-functions 
 	'(car cdr integer? char? pair? procedure? boolean? rational? null? string? symbol? string->symbol symbol->string oron/binary-div cons vector-ref
-		oron/binary-add string-length vector-length  number? numerator denominator not))
+		oron/binary-add string-length vector-length  number? numerator denominator not zero? char->integer integer->char string-ref vector?
+		 set-car! set-cdr! string-set! vector-set! oron/binary=  oron/binary<))
 
 (define unify-fvar-w-runtime-support
 	(lambda (fvar-lst runtime-lst)
@@ -1448,6 +1460,389 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; runtime support ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+(define my-binary<
+  (lambda()
+		(let ((address (get-fvar-address '(fvar oron/binary<) global-fvar-table)))
+		(string-append
+			"//BINARY<\n"
+			"JUMP(L_create_my_binary_lower_then_clos);\n" 
+			"L_my_binary_lower_then_body:\n" 
+				"PUSH(FP);\n" 
+				"MOV(FP, SP);\n\n" 
+
+				"CMP(FPARG(1),2);\n"
+				"JUMP_EQ(L_my_binary_lower_then_2_args);\n"
+					"MOV(R0,FPARG(2));\n"
+					"CMP(IND(R0),T_INTEGER);\n"
+					"JUMP_NE(L_my_binary_lower_then_false);\n"
+						"MOV(R0,SOB_TRUE);\n"
+						"JUMP(L_exit_my_lower_then_equal);\n"
+
+				"L_my_binary_lower_then_2_args:\n"	
+				"MOV(R0,FPARG(2));\n"
+				"MOV(R1,FPARG(3));\n"
+				"CMP(IND(R0),T_INTEGER);\n"
+				"JUMP_NE(L_my_binary_lower_then_false);\n"
+				"CMP(IND(R1),T_INTEGER);\n"
+				"JUMP_NE(L_my_binary_lower_then_false);\n"
+
+				"CMP(INDD(R0,1),INDD(R1,1));\n"
+				"JUMP_GT(L_my_binary_lower_then_false);\n"
+				"CMP(INDD(R0,1),INDD(R1,1));\n"
+				"JUMP_EQ(L_my_binary_lower_then_false);\n"
+					"MOV(R0,SOB_TRUE);\n"
+					"JUMP(L_exit_my_lower_then_equal);\n"
+
+				"L_my_binary_lower_then_false:\n"
+				"MOV(R0,SOB_FALSE);\n"			
+
+				"L_exit_my_lower_then_equal:\n"
+
+                "POP(FP);\n" 
+				"RETURN;\n\n" 
+
+			"L_create_my_binary_lower_then_clos:\n" 
+				"PUSH(3);\n" 
+				"CALL(MALLOC);\n" 
+				"DROP(1);\n" 
+				"MOV(INDD(R0,0),IMM(T_CLOSURE));\n" 
+				"MOV(INDD(R0,1),IMM(0));\n" 
+				"MOV(INDD(R0,2),LABEL(L_my_binary_lower_then_body));\n" 
+				"MOV(IND(" (number->string address) "),R0);\n\n" ))))
+
+
+
+(define my-binary=
+  (lambda()
+		(let ((address (get-fvar-address '(fvar oron/binary=) global-fvar-table)))
+		(string-append
+			"//BINARY=\n"
+			"JUMP(L_create_my_binary_number_equal_set_clos);\n" 
+			"L_my_binary_number_equal_body:\n" 
+				"PUSH(FP);\n" 
+				"MOV(FP, SP);\n\n" 
+
+				"CMP(FPARG(1),2);\n"
+				"JUMP_EQ(L_my_binary_number_equal_2_args);\n"
+					"MOV(R0,FPARG(2));\n"
+					"CMP(IND(R0),T_INTEGER);\n"
+					"JUMP_NE(L_my_binary_number_equal_false);\n"
+						"MOV(R0,SOB_TRUE);\n"
+						"JUMP(L_exit_my_binary_number_equal);\n"
+
+				"L_my_binary_number_equal_2_args:\n"	
+				"MOV(R0,FPARG(2));\n"
+				"MOV(R1,FPARG(3));\n"
+				"CMP(IND(R0),T_INTEGER);\n"
+				"JUMP_NE(L_my_binary_number_equal_false);\n"
+				"CMP(IND(R1),T_INTEGER);\n"
+				"JUMP_NE(L_my_binary_number_equal_false);\n"
+				"CMP(INDD(R0,1),INDD(R1,1));\n"
+				"JUMP_NE(L_my_binary_number_equal_false);\n"
+					"MOV(R0,SOB_TRUE);\n"
+					"JUMP(L_exit_my_binary_number_equal);\n"
+
+				"L_my_binary_number_equal_false:\n"
+				"MOV(R0,SOB_FALSE);\n"			
+
+				"L_exit_my_binary_number_equal:\n"
+
+                "POP(FP);\n" 
+				"RETURN;\n\n" 
+
+			"L_create_my_binary_number_equal_set_clos:\n" 
+				"PUSH(3);\n" 
+				"CALL(MALLOC);\n" 
+				"DROP(1);\n" 
+				"MOV(INDD(R0,0),IMM(T_CLOSURE));\n" 
+				"MOV(INDD(R0,1),IMM(0));\n" 
+				"MOV(INDD(R0,2),LABEL(L_my_binary_number_equal_body));\n" 
+				"MOV(IND(" (number->string address) "),R0);\n\n" ))))
+
+
+
+(define my-vector-set!
+  (lambda()
+		(let ((address (get-fvar-address '(fvar vector-set!) global-fvar-table)))
+		(string-append
+			"//VECTOR-SET!\n"
+			"JUMP(L_create_my_vector_set_clos);\n" 
+			"L_my_vector_set_body:\n" 
+				"PUSH(FP);\n" 
+				"MOV(FP, SP);\n\n" 
+				
+				"MOV(R0,FPARG(2));\n"
+				"MOV(R1,FPARG(3));\n"
+				"MOV(R1,INDD(R1,1));\n"
+				"MOV(R2,FPARG(4));\n"
+				"MOV(INDD(R0,2+R1),R2);\n"
+				"MOV(R0,SOB_VOID);\n"
+
+                "POP(FP);\n" 
+				"RETURN;\n\n" 
+
+			"L_create_my_vector_set_clos:\n" 
+				"PUSH(3);\n" 
+				"CALL(MALLOC);\n" 
+				"DROP(1);\n" 
+				"MOV(INDD(R0,0),IMM(T_CLOSURE));\n" 
+				"MOV(INDD(R0,1),IMM(0));\n" 
+				"MOV(INDD(R0,2),LABEL(L_my_vector_set_body));\n" 
+				"MOV(IND(" (number->string address) "),R0);\n\n" ))))
+
+
+
+(define my-string-set!
+  (lambda()
+		(let ((address (get-fvar-address '(fvar string-set!) global-fvar-table)))
+		(string-append
+			"//STRING-SET!\n"
+			"JUMP(L_create_my_string_set_clos);\n" 
+			"L_my_set_string_set_body:\n" 
+				"PUSH(FP);\n" 
+				"MOV(FP, SP);\n\n" 
+				
+				"MOV(R0,FPARG(2));\n"
+				"MOV(R1,FPARG(3));\n"
+				"MOV(R1,INDD(R1,1));\n"
+				"MOV(R2,FPARG(4));\n"
+				"MOV(R2,INDD(R2,1));\n"
+				"MOV(INDD(R0,2+R1),R2);\n"
+				"MOV(R0,SOB_VOID);\n"
+
+                "POP(FP);\n" 
+				"RETURN;\n\n" 
+
+			"L_create_my_string_set_clos:\n" 
+				"PUSH(3);\n" 
+				"CALL(MALLOC);\n" 
+				"DROP(1);\n" 
+				"MOV(INDD(R0,0),IMM(T_CLOSURE));\n" 
+				"MOV(INDD(R0,1),IMM(0));\n" 
+				"MOV(INDD(R0,2),LABEL(L_my_set_string_set_body));\n" 
+				"MOV(IND(" (number->string address) "),R0);\n\n" ))))
+
+(define my-set-cdr!
+  (lambda()
+		(let ((address (get-fvar-address '(fvar set-cdr!) global-fvar-table)))
+		(string-append
+			"//SET-CDR!\n"
+			"JUMP(L_create_my_set_cdr_clos);\n" 
+			"L_my_set_cdr_body:\n" 
+				"PUSH(FP);\n" 
+				"MOV(FP, SP);\n\n" 
+				
+				"MOV(R0,FPARG(2));\n"
+				"MOV(R1,FPARG(3));\n"
+				"MOV(INDD(R0,2),R1);\n"
+				"MOV(R0,SOB_VOID);\n"
+
+                "POP(FP);\n" 
+				"RETURN;\n\n" 
+
+			"L_create_my_set_cdr_clos:\n" 
+				"PUSH(3);\n" 
+				"CALL(MALLOC);\n" 
+				"DROP(1);\n" 
+				"MOV(INDD(R0,0),IMM(T_CLOSURE));\n" 
+				"MOV(INDD(R0,1),IMM(0));\n" 
+				"MOV(INDD(R0,2),LABEL(L_my_set_cdr_body));\n" 
+				"MOV(IND(" (number->string address) "),R0);\n\n" ))))
+
+
+
+(define my-set-car!
+  (lambda()
+		(let ((address (get-fvar-address '(fvar set-car!) global-fvar-table)))
+		(string-append
+			"//SET-CAR!\n"
+			"JUMP(L_create_my_set_car_clos);\n" 
+			"L_my_set_car_body:\n" 
+				"PUSH(FP);\n" 
+				"MOV(FP, SP);\n\n" 
+
+				"MOV(R0,FPARG(2));\n"
+				"MOV(R1,FPARG(3));\n"
+				"MOV(INDD(R0,1),R1);\n"
+				"MOV(R0,SOB_VOID);\n"
+
+                "POP(FP);\n" 
+				"RETURN;\n\n" 
+
+			"L_create_my_set_car_clos:\n" 
+				"PUSH(3);\n" 
+				"CALL(MALLOC);\n" 
+				"DROP(1);\n" 
+				"MOV(INDD(R0,0),IMM(T_CLOSURE));\n" 
+				"MOV(INDD(R0,1),IMM(0));\n" 
+				"MOV(INDD(R0,2),LABEL(L_my_set_car_body));\n" 
+				"MOV(IND(" (number->string address) "),R0);\n\n" ))))
+
+
+
+(define my-vector?
+  (lambda()
+		(let ((address (get-fvar-address '(fvar vector?) global-fvar-table)))
+		(string-append
+			"//VECTOR?\n"
+			"JUMP(L_create_my_vector_clos);\n" 
+			"L_my_vector_body:\n" 
+				"PUSH(FP);\n" 
+				"MOV(FP, SP);\n\n" 
+				"MOV(R0,FPARG(2));\n"
+				"MOV(R0,IND(R0));\n"
+
+				"CMP(R0,T_VECTOR);\n"
+				"JUMP_NE(L_my_vector_false);\n"
+					"MOV(R0,SOB_TRUE)\n"
+					"JUMP(L_my_vector_exit);\n"
+
+				"L_my_vector_false:\n"
+					"MOV(R0,SOB_FALSE)\n"	
+
+				"L_my_vector_exit:\n"
+                "POP(FP);\n" 
+				"RETURN;\n\n" 
+
+			"L_create_my_vector_clos:\n" 
+				"PUSH(3);\n" 
+				"CALL(MALLOC);\n" 
+				"DROP(1);\n" 
+				"MOV(INDD(R0,0),IMM(T_CLOSURE));\n" 
+				"MOV(INDD(R0,1),IMM(0));\n" 
+				"MOV(INDD(R0,2),LABEL(L_my_vector_body));\n" 
+				"MOV(IND(" (number->string address) "),R0);\n\n" ))))
+
+
+(define my-string-ref
+  (lambda()
+		(let ((address (get-fvar-address '(fvar string-ref) global-fvar-table)))
+		(string-append
+			"//STRING-REF\n"
+			"JUMP(L_create_my_string_ref_clos);\n" 
+			"L_my_string_ref_body:\n" 
+				"PUSH(FP);\n" 
+				"MOV(FP, SP);\n\n" 
+				"MOV(R0,FPARG(2));\n"           
+			    "MOV(R1,FPARG(3));\n"     
+			    "MOV(R1,INDD(R1,1));\n"
+			    "MOV(R1,INDD(R0,R1 + 2));\n"
+			    "PUSH(R1);\n"
+			    "CALL(MAKE_SOB_CHAR);\n"
+			    "DROP(IMM(1));\n"
+                "POP(FP);\n" 
+				"RETURN;\n\n" 
+
+			"L_create_my_string_ref_clos:\n" 
+				"PUSH(3);\n" 
+				"CALL(MALLOC);\n" 
+				"DROP(1);\n" 
+				"MOV(INDD(R0,0),IMM(T_CLOSURE));\n" 
+				"MOV(INDD(R0,1),IMM(0));\n" 
+				"MOV(INDD(R0,2),LABEL(L_my_string_ref_body));\n" 
+				"MOV(IND(" (number->string address) "),R0);\n\n" ))))
+
+
+
+
+
+
+(define my-integer-to-char
+	(lambda ()
+		(let ((address (get-fvar-address '(fvar integer->char) global-fvar-table)))
+		(string-append
+            "//INTEGER->CHAR\n"
+			"JUMP(L_create_my_integer_to_char_clos);\n" 
+			"L_my_integer_to_char_body:\n" 
+				"PUSH(FP);\n" 
+				"MOV(FP, SP);\n" 
+				"MOV(R1,FPARG(2));\n"
+
+				"MOV(R0,INDD(R1,1));\n"
+				"PUSH(R0);\n"
+				"CALL(MAKE_SOB_CHAR);\n"
+				"DROP(IMM(1));\n"
+
+				"POP(FP);\n" 
+				"RETURN;\n\n" 
+
+			"L_create_my_integer_to_char_clos:\n" 
+				"PUSH(3);\n" 
+				"CALL(MALLOC);\n" 
+				"DROP(1);\n" 
+				"MOV(INDD(R0,0),IMM(T_CLOSURE));\n" 
+				"MOV(INDD(R0,1),IMM(0));\n" 
+				"MOV(INDD(R0,2),LABEL(L_my_integer_to_char_body));\n" 
+				"MOV(IND(" (number->string address) "),R0);\n\n" ))))
+
+
+(define my-char-to-integer
+	(lambda ()
+		(let ((address (get-fvar-address '(fvar char->integer) global-fvar-table)))
+		(string-append
+            "//CHAR->INTEGER\n"
+			"JUMP(L_create_my_char_to_integer_clos);\n" 
+			"L_my_char_to_integer_body:\n" 
+				"PUSH(FP);\n" 
+				"MOV(FP, SP);\n" 
+				"MOV(R1,FPARG(2));\n"
+
+				"MOV(R0,INDD(R1,1));\n"
+				"PUSH(R0);\n"
+				"CALL(MAKE_SOB_INTEGER);\n"
+				"DROP(IMM(1));\n"
+
+				"POP(FP);\n" 
+				"RETURN;\n\n" 
+
+			"L_create_my_char_to_integer_clos:\n" 
+				"PUSH(3);\n" 
+				"CALL(MALLOC);\n" 
+				"DROP(1);\n" 
+				"MOV(INDD(R0,0),IMM(T_CLOSURE));\n" 
+				"MOV(INDD(R0,1),IMM(0));\n" 
+				"MOV(INDD(R0,2),LABEL(L_my_char_to_integer_body));\n" 
+				"MOV(IND(" (number->string address) "),R0);\n\n" ))))
+
+
+
+(define my-zero?
+	(lambda ()
+		(let ((address (get-fvar-address '(fvar zero?) global-fvar-table)))
+		(string-append
+                  "//ZERO?\n"
+			"JUMP(L_create_my_zero_clos);\n" 
+			"L_my_zero_body:\n" 
+				"PUSH(FP);\n" 
+				"MOV(FP, SP);\n" 
+
+				"MOV(R1,FPARG(2));\n"
+				"CMP(INDD(R1,0),T_INTEGER);\n"
+				"JUMP_NE(L_my_zero_return_false);\n"
+				"CMP(INDD(R1,1),IMM(0));\n"
+				"JUMP_NE(L_my_zero_return_false);\n"
+					"MOV(R0,SOB_TRUE);\n"
+					"JUMP(L_my_zero_exit);\n"
+				
+
+				"L_my_zero_return_false:\n"
+				"MOV(R0,SOB_FALSE);\n"
+
+				"L_my_zero_exit:\n"
+				"POP(FP);\n" 
+				"RETURN;\n\n" 
+
+			"L_create_my_zero_clos:\n" 
+				"PUSH(3);\n" 
+				"CALL(MALLOC);\n" 
+				"DROP(1);\n" 
+				"MOV(INDD(R0,0),IMM(T_CLOSURE));\n" 
+				"MOV(INDD(R0,1),IMM(0));\n" 
+				"MOV(INDD(R0,2),LABEL(L_my_zero_body));\n" 
+				"MOV(IND(" (number->string address) "),R0);\n\n" ))))
+
 
 
 (define my-not
